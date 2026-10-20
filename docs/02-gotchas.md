@@ -1908,3 +1908,70 @@ robots 跳过 : 17
 所以它进了 `local-no-content`。和招生网/Vue、就业网/JS 是同一类，不是本次新引入的问题。
 
 位置：`D:/QuanZhi/scripts/fetch_once.py`
+
+---
+
+## 58. 用 Git Data API 推送：三个坑（代理挡域名、空仓库 409、中文文件名被转义）
+
+**背景**：这台机器到 `github.com:443` 被系统代理挡成 **502**（`api.github.com` 却正常），
+`git push` 走不了。改用 Git Data API 逐 blob 上传，踩了三处。
+
+### 坑 1 · 先确认到底是哪个域名不通
+
+`curl -v https://github.com/` 才看得见真相：
+
+```
+* Trying 127.0.0.1:59966...
+> CONNECT github.com:443 HTTP/1.1
+< HTTP/1.1 502 Bad Gateway
+```
+
+同一时刻 `api.github.com` 返回 200、`github.com:22` 的 SSH 握手也通。
+所以「GitHub 连不上」是个过于笼统的结论 —— **443 不通不代表 22 不通，
+主域名不通不代表 api 子域不通**。先分域名、分端口测，再决定走哪条路。
+
+### 坑 2 · 空仓库建 blob 返回 409
+
+```
+POST /repos/{owner}/{repo}/git/blobs → HTTP 409 {"message":"Git Repository is empty."}
+```
+
+新仓库没有任何提交时，git 对象库还没初始化，blob / tree 全都不让建。
+而且 `GET /git/ref/heads/main` 对空仓库返回的也是 **409 而不是 404**
+（有仓库但没这个分支才是 404），只用 404 判断会漏。
+
+**做法**：先用 Contents API `PUT /contents/.gitkeep` 造一个初始化提交，
+再把真正的第一个 commit（`parents: []`）用 `PATCH /git/refs/heads/main {force: true}`
+强制指过去 —— 占位提交变成不可达对象，仓库历史里只剩一条真提交。
+
+### 坑 3 · `core.quotepath` 把中文文件名转义成字面量
+
+第一版用 `git ls-files -s` 取路径，拿到的是：
+
+```
+100644 195e1f5... 0	"\347\237\245\344\272\206.bat"
+```
+
+引号和 `\347\237\245` 是 **git 对非 ASCII 路径的显示转义**（`core.quotepath` 默认开启）。
+脚本把这个字符串当成真实文件名发给了 GitHub，于是仓库里多了两个名字含引号和
+反斜杠的文件，顶层 tree 的排序也变得莫名其妙（`"` 的字节序 0x22 排在字母前面）。
+
+**这个 bug 有多隐蔽**：152 个 blob 的内容 SHA **全部正确**，文件数量也对得上，
+逐个比对「本地 blob sha vs 远端 blob sha」是**全绿**的 —— 错的只有名字。
+真正暴露它的是 tree SHA 对不上，以及 `git status` 突然报告两个 rename。
+
+**做法**：一律 `git ls-files -s -z`（`-z` 关闭转义、用 NUL 分隔），
+并在推送前加一道断言：路径里出现 `"` 或 `\` 直接拒绝。
+
+### 顺带：远端 commit SHA 与本地不同是正常的
+
+GitHub 会重新排序 tree 条目、并规范化 commit message 的尾部换行，
+所以远端 commit SHA ≠ 本地 commit SHA，哪怕内容逐字节相同。
+两边就成了两个**不相干的首个提交**，以后 `git push` 会被判非快进而拒绝。
+
+**对齐办法**：把远端 tree 递归取回来，在本地按 git 对象格式（`mode name\0` + 20 字节 sha）
+自底向上重建，校验重建后的 tree SHA 与远端一致；再重建 commit 对象，
+**枚举时区和尾部换行**（实测命中 `+0800` + 消息末尾 `\n\n`），校验 SHA 后
+`git update-ref refs/heads/main <远端 sha>`。本地工作区内容不变，`git status` 干净。
+
+位置：`scripts/` 之外的运维脚本，未进仓库；结论记在此处
