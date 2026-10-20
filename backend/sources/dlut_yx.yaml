@@ -1,0 +1,92 @@
+# ============================================================================
+# 大连理工大学 · 迎新网（https://yx.dlut.edu.cn/）
+# ----------------------------------------------------------------------------
+# 站点类型：博达（Visual SiteBuilder）
+# 列表结构（2026-10 实测，证据见 docs/03-dlut-sources.md）：
+#
+#   <div class="ny_news">
+#     <table class="winstyle58538">          <- 58538 是「栏目模板 ID」，各栏目不同
+#       <tr>
+#         <td><span class="leaderfont58538">·</span></td>
+#         <td><a class="c58538" href="../info/9990/90897.htm"
+#                 title="标题">标题</a></td>
+#         <td><span class="timestyle58538">2026-08-10</span></td>   <- 日期在兄弟 td
+#         <td></td>
+#       </tr>
+#
+# 两个必须避开的坑：
+#   1. `winstyle58538` / `timestyle58538` 里的数字是模板 ID，各栏目/各子站都不一样，
+#      **绝不能硬编码**。日期用属性前缀选择器 `[class^="timestyle"]` 定位。
+#   2. 日期在**兄弟 <td>** 里，只取标题所在 <a> 的父节点永远拿不到日期。
+#      本适配器会把日期选择器和「整行文本」都试一遍，两种结构都能吃到。
+#
+# 详情页正文容器：`#vsb_content`（稳定 id）。注意 `.v_news_content` 是它的**子节点**，
+# 两者是父子关系而非并列候选，取外层 `#vsb_content` 才是对的。
+# ============================================================================
+
+# 各栏目共用的抓取配置（第一个条目的 config 打上锚点，后面 *yx_config 引用）
+- &yx_base
+  name: 迎新网·本科生报到
+  school: 大连理工大学
+  adapter: html_list
+  url: https://yx.dlut.edu.cn/index/bksbd.htm
+  category_hint: 其他
+  enabled: true
+  # 实测：共 11 条（无分页，index/bksbd/2.htm 返回 404）
+  config: &yx_config
+    list_selector: "div.ny_news tr"
+    fields:
+      title: "a@title"          # 优先取 a[title]，不受内部换行/标签影响
+      url: "a@href"
+      date: 'span[class^="timestyle"]'
+    # 只保留真正的文章链接，挡掉导航栏与「更多」按钮
+    item_url_regex: "dlut\\.edu\\.cn/info/\\d+/\\d+\\.htm"
+    follow_detail: true
+    detail:
+      content_selector:
+        - "#vsb_content"        # 稳定 id，全站一致
+        - ".v_news_content"
+    max_items: 20               # 「最近 20 条」就是这里
+    pagination:
+      max_pages: 1
+
+- <<: *yx_base
+  name: 迎新网·研究生报到
+  url: https://yx.dlut.edu.cn/index/yjsbd.htm
+  # 实测：9 条
+
+- <<: *yx_base
+  name: 迎新网·书院介绍
+  url: https://yx.dlut.edu.cn/index/syjs.htm
+  # 实测：9 条
+
+- <<: *yx_base
+  name: 迎新网·院系风采
+  url: https://yx.dlut.edu.cn/index/yxfc.htm
+  # 实测：20 条（正好铺满 20 条）
+
+# 第 5 个来源。说明：迎新网首页结构上只有 4 个 `div.fd-bks` 列表区块
+# （本科生/研究生/书院风采/学院风采），并不存在第 5 个新闻栏目
+# （index/tzgg.htm、index/xwdt.htm、index/zxdt.htm 等一批候选全部 404）。
+# 所以这里把「首页聚合」本身作为一个来源：它交叉展示 4 个区块的内容，共 20 条，
+# 也正是用户在首页一眼能看到的全部内容。
+# 列表结构：<li><a href="info/9990/90897.htm"><span>标题</span><span>日期</span></a></li>
+- name: 迎新网·首页聚合
+  school: 大连理工大学
+  adapter: html_list
+  url: https://yx.dlut.edu.cn/
+  category_hint: 其他
+  enabled: true
+  config:
+    list_selector: "div.fd-bks-list li"
+    fields:
+      title: "a span:first-of-type"
+      url: "a@href"
+      date: "a span:last-of-type"
+    item_url_regex: "dlut\\.edu\\.cn/info/\\d+/\\d+\\.htm"
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+    pagination:
+      max_pages: 1

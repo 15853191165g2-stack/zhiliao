@@ -1,0 +1,255 @@
+# ============================================================================
+# 大连理工大学 · 各职能部处站点通知来源
+# ----------------------------------------------------------------------------
+# 这里 7 个来源覆盖了 4 种**互不相同**的页面结构。之所以不是一份配置复制粘贴，
+# 是因为实测发现大工各子站虽然大多是博达系统，但模板版本不同：
+#
+#   A. 博达经典表格版（迎新网）：tr/td + span[class^=timestyle]，日期在兄弟 td
+#   B. 博达 li 列表版（教务处/网信中心/学生处）：<li><a>标题</a><span>日期</span></li>
+#   C. 博达「日期拆分」版（后勤处/图书馆）：日期被拆成多个节点
+#        后勤处   <p class="day">21</p><p class="year-month">2026-09</p>
+#        图书馆   <time class="time"><span>2026</span>09-22</time>
+#   D. 外部聚合版（研究生院/学生处首页）：直接链到 news.dlut.edu.cn
+#
+# 每条配置的注释里都写了**实测条目数**，方便站点改版后一眼对比出异常。
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# 教务处（http://teach.dlut.edu.cn）
+# ---------------------------------------------------------------------------
+# ⚠️ 该站的「重要通知 / 教学文件 / 其他文件」三个栏目是 **list.jsp?wbtreeid=…** 形式，
+#    匿名访问一律返回「系统提示：您没有访问当前栏目的权限」——实测确认，不是选择器问题。
+#    可匿名访问的是「新闻快递」和「考试安排」，本配置接的是这两个。
+#    替代方案见 docs/03-dlut-sources.md「需要登录的栏目」一节。
+- name: 教务处·新闻快递
+  school: 大连理工大学
+  adapter: html_list
+  url: http://teach.dlut.edu.cn/xwkd/xwkd.htm
+  category_hint: 教务
+  enabled: true
+  # 实测：列表页共 547 条；首页 20 条，分页为 xwkd/xwkd/{N}.htm 且 N 越大越旧
+  config:
+    list_selector: "div.list li"
+    fields:
+      title: "a@title"
+      url: "a@href"
+      date: "span"
+    item_url_regex: "dlut\\.edu\\.cn/info/\\d+/\\d+\\.htm"
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+    pagination:
+      max_pages: 1
+
+- name: 教务处·考试安排
+  school: 大连理工大学
+  adapter: html_list
+  url: http://teach.dlut.edu.cn/ksap/ksap.htm
+  category_hint: 考试
+  enabled: true
+  config:
+    list_selector: "div.list li"
+    fields:
+      title: "a@title"
+      url: "a@href"
+      date: "span"
+    item_url_regex: "dlut\\.edu\\.cn/info/\\d+/\\d+\\.htm"
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+    pagination:
+      max_pages: 1
+
+# ---------------------------------------------------------------------------
+# 学生处（http://xsc.dlut.edu.cn/）
+# ---------------------------------------------------------------------------
+# 真实的「通知公告」栏目是 /index/tzgg.htm（首页 / 和 /tzgg.htm 都是 404）。
+# 结构：<li><span class="date">2026年07月20日</span><a href="…">· 标题</a></li>
+#   - 日期在标题**前面**的兄弟 span 里
+#   - 标题前面带一个「·」前缀，用 title_cleanup_regex 去掉
+#   - 正文经常是**纯图片海报**（.v_news_content 里只有一个 <img>），
+#     这类页面正文纯文本长度天然为 0，是合法内容，不能当抓取失败
+- name: 学生处·通知公告
+  school: 大连理工大学
+  adapter: html_list
+  url: http://xsc.dlut.edu.cn/index/tzgg.htm
+  category_hint: 其他
+  enabled: true
+  # 实测：14 条（无分页）
+  config:
+    list_selector: "div.news-content li"
+    fields:
+      title: "a"
+      url: "a@href"
+      date: "span.date"
+    title_cleanup_regex: "^[·•\\s]+"
+    item_url_regex: "dlut\\.edu\\.cn/info/\\d+/\\d+\\.htm"
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+    pagination:
+      max_pages: 1
+
+# ---------------------------------------------------------------------------
+# 研究生院（http://gs.dlut.edu.cn/）
+# ---------------------------------------------------------------------------
+# 结构：<li><a href="info/1005/50392.htm">标题</a><span class="date">[2026-04-29]</span></li>
+#   - 日期带方括号，parse_dt 会先剥掉包裹符号
+#   - 链接有两种：站内 info/1005/… 与 news.dlut.edu.cn 新闻网，都要收
+#   - ⚠️ 有的详情页正文**本身就是空的**（实测 /info/1005/50392.htm 的
+#     #vsb_content 里只有 <span></span><br/>，无图无附件），这是源站如此，
+#     不是抓取失败。入库层有「空壳保护」，不会用空正文覆盖已有内容。
+- name: 研究生院·工作动态
+  school: 大连理工大学
+  adapter: html_list
+  url: http://gs.dlut.edu.cn/gzdt1.htm
+  category_hint: 教务
+  enabled: true
+  # 实测：列表页共 83 条；首页 18 条（含 11 条站内 + 7 条新闻网）
+  config:
+    list_selector: "div.list li"
+    fields:
+      title: "a"
+      url: "a@href"
+      date: "span.date"
+    item_url_regex: "dlut\\.edu\\.cn/info/\\d+/\\d+\\.htm"
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+    pagination:
+      max_pages: 1        # gzdt/1.htm 实测 404，该栏目没有静态分页
+
+# ---------------------------------------------------------------------------
+# 后勤处（http://houqin.dlut.edu.cn）
+# ---------------------------------------------------------------------------
+# 结构：<li><a href="info/1031/8891.htm">
+#          <div class="message-data"><p class="day">21</p><p class="year-month">2026-09</p></div>
+#          <div class="message-txt-box"><h2>标题</h2><p>来源：</p></div>
+#        </a></li>
+#   - 日期被拆成「日」和「年-月」两个 <p>，靠 date_extract_regex 从整行文本里
+#     抠出「21 2026-09」，再由 parse_dt 识别为 dmy 形态
+#   - 链接是**不带前导斜杠**的相对路径 info/1031/…，urljoin 会正确补全
+#   - 该栏目有一半内容直接挂的是 mp.weixin.qq.com 公众号文章链接，
+#     所以 item_url_regex 必须同时放行微信链接（这是公众号内容的合法来源之一）
+#
+# ★ 分页是本项目里唯一启用多页的来源，用来说明博达分页的「反向编号」怪癖：
+#     tzgg.htm      = 第1页（最新）
+#     tzgg/4.htm    = 第2页   ← 注意：N 不是页码
+#     tzgg/3.htm    = 第3页
+#     tzgg/2.htm    = 第4页
+#     tzgg/1.htm    = 第5页（最旧）
+#   页面上的页码控件本身是坏的：它把「页2」链到 tzgg/5.htm，而那是个空页。
+#   所以实现里**不信任页码控件的 href**，而是取控件里出现过的最大 N 再倒着走。
+- name: 后勤处·通知公告
+  school: 大连理工大学
+  adapter: html_list
+  url: http://houqin.dlut.edu.cn/tzgg.htm
+  category_hint: 后勤
+  enabled: true
+  # 实测：第1页 15 行（其中 3 条站内 + 12 条公众号），全栏目 5 页
+  config:
+    list_selector: "ul.message-list li"
+    fields:
+      title: "h2"
+      url: "a@href"
+    date_extract_regex: "\\d{1,2}\\s+20\\d{2}-\\d{1,2}"
+    item_url_regex: "(dlut\\.edu\\.cn/info/\\d+/\\d+\\.htm|mp\\.weixin\\.qq\\.com/s)"
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+    pagination:
+      mode: path_index
+      path_template: "tzgg/{n}.htm"
+      index_desc: true       # N 越大越新，第2页 = 最大N-1
+      max_pages: 2
+      stop_on_empty: true
+
+# ---------------------------------------------------------------------------
+# 网信中心（http://its.dlut.edu.cn）
+# ---------------------------------------------------------------------------
+# 结构：<li><a href="../info/1011/337598.htm">标题</a><span>2026-09-30</span></li>
+#   ⚠️ 页面上还挂着一条 `ul.dropdown-menu` 的**导航菜单**，里面也有 /info/ 链接
+#     （「核心机房管理办法」「宿舍网络设备间管理」等），
+#     所以 list_selector 必须限定到 `div.list`，否则会把导航项当通知抓进来。
+- name: 网信中心·中心通知
+  school: 大连理工大学
+  adapter: html_list
+  url: http://its.dlut.edu.cn/index/zxtz.htm
+  category_hint: 其他
+  enabled: true
+  # 实测：列表页共 896 条；第1页 div.list 下 20 条
+  config:
+    list_selector: "div.list li"
+    fields:
+      title: "a"
+      url: "a@href"
+      date: "span"
+    item_url_regex: "dlut\\.edu\\.cn/info/\\d+/\\d+\\.htm"
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+    pagination:
+      max_pages: 1
+
+# ---------------------------------------------------------------------------
+# 图书馆（http://www.lib.dlut.edu.cn/）
+# ---------------------------------------------------------------------------
+# 结构：<li><a href="../info/1049/11319.htm">
+#          <time class="time"><span>2026</span>09-22</time>
+#          <h4 class="tit l2">标题</h4>
+#          <span class="mor">了解详情</span>
+#        </a></li>
+#   - 年份和「月-日」被拆在同一个 <time> 里的两个节点：span + 纯文本，
+#     取 `time.time` 得到「2026 09-22」，parse_dt 识别为「年份 月-日」形态
+#   - 标题在 h4 里，所以标题选择器要写 h4.tit，不能用 a（否则会带上「了解详情」）
+- name: 图书馆·通知公告
+  school: 大连理工大学
+  adapter: html_list
+  url: http://www.lib.dlut.edu.cn/xw/tzgg.htm
+  category_hint: 其他
+  enabled: true
+  # 实测：第1页 12 条
+  config:
+    list_selector: "ul.nytzlist.flex li"
+    fields:
+      title: "h4.tit"
+      url: "a@href"
+      date: "time.time"
+    item_url_regex: "dlut\\.edu\\.cn/info/\\d+/\\d+\\.htm"
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+    pagination:
+      max_pages: 1
+
+# ---------------------------------------------------------------------------
+# 校团委（http://tuanwei.dlut.edu.cn）—— 默认关闭
+# ---------------------------------------------------------------------------
+# 实测：整站匿名访问返回「系统提示：抱歉，可能是由下列问题导致的：
+#       您没有访问当前栏目的权限。」
+# 这是博达的栏目权限控制，**不是选择器问题、也不是 UA 问题**，
+# 换 UA / 加 Referer / 换 https 都无效。因此这里保留配置但默认禁用，
+# 等拿到校内网或授权后再打开。替代方案见 docs/03-dlut-sources.md。
+- name: 校团委·通知（需校内权限，默认关闭）
+  school: 大连理工大学
+  adapter: html_list
+  url: http://tuanwei.dlut.edu.cn/
+  category_hint: 活动
+  enabled: false
+  config:
+    list_selector: "ul li"
+    fields:
+      title: "a"
+      url: "a@href"
+    item_url_regex: "tuanwei\\.dlut\\.edu\\.cn/info/\\d+/\\d+\\.htm"
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20

@@ -1,0 +1,25 @@
+# 示例来源 2：图书馆 RSS（离线样例）
+#
+# 接真实站点时改成：
+#   url: https://lib.你的学校.edu.cn/rss.xml
+#   config.transport: http
+#   config.file: 删掉
+#
+# 公众号怎么办？
+#   微信没有公开的文章列表接口，所以走第三方 RSS 桥接时，
+#   也是把桥接出来的 RSS 地址填到 url 里（transport 保持 http）。
+#   详见 README「诚实的边界说明」。
+
+name: 示例大学图书馆通知
+school: 示例大学
+adapter: rss
+url: tests/fixtures/demo_lib.xml
+category_hint: 后勤
+enabled: false   # 阶段1 的离线样例，已由真实大工来源替代；需要时改回 true
+
+config:
+  transport: file
+  file: tests/fixtures/demo_lib.xml
+  max_items: 30
+  # 桥接源常常只给摘要，打开这个会进原文页取全文（会多花一次请求，注意频控）
+  fetch_full_text: false

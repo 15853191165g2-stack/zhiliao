@@ -1,0 +1,187 @@
+[
+  {
+    "title": "关于网信中心2026年国庆节期间值班安排的通知",
+    "source": "网信中心·中心通知",
+    "model": "glm-4.7-flash",
+    "summary_lines": [
+      "网信中心发布国庆假期值班安排，服务大厅和维修值班时间已定。",
+      "凌水主校区值班日：10月2日、6日；维修值班日：10月4日-7日。",
+      "报修请用自助系统或APP，故障热线已公布，自助设备24小时开放。"
+    ],
+    "key_info": {
+      "deadline": null,
+      "deadline_ts": null,
+      "audience": null,
+      "location": "凌水主校区、开发区校区",
+      "materials": [],
+      "contact": "84707014、81987000、81988000、62274381、62274385",
+      "fee": null,
+      "extra": {}
+    },
+    "importance": "normal",
+    "category": "后勤",
+    "tags": [
+      "国庆值班",
+      "校园网",
+      "一卡通",
+      "报修",
+      "自助服务"
+    ],
+    "confidence": 0.2,
+    "error": null
+  },
+  {
+    "title": "关于图书馆2026年中秋节、国庆节开放安排的通知",
+    "source": "图书馆·通知公告",
+    "model": "glm-4.7-flash",
+    "summary_lines": [
+      "图书馆中秋国庆期间正常开馆，但闭馆时间调整。",
+      "9月25日-27日及10月1日-7日，伯川馆7:00-22:00开放。",
+      "令希馆及盘锦、开发区分馆8:00-22:00开放，马院馆闭馆。"
+    ],
+    "key_info": {
+      "deadline": null,
+      "deadline_ts": null,
+      "audience": "全校师生读者",
+      "location": "伯川图书馆、令希图书馆、盘锦校区分馆、开发区校区分馆",
+      "materials": [],
+      "contact": null,
+      "fee": null,
+      "extra": {}
+    },
+    "importance": "normal",
+    "category": "后勤",
+    "tags": [
+      "图书馆",
+      "放假安排",
+      "开放时间"
+    ],
+    "confidence": 0.9,
+    "error": null
+  },
+  {
+    "title": "关于2026年下半年后勤处领导接待日安排的通知",
+    "source": "后勤处·通知公告",
+    "model": "glm-4.7-flash",
+    "summary_lines": [
+      "大连理工大学后勤处定于9月26日举行领导接待日，听取师生意见建议。",
+      "时间：9月26日 13:30-15:00；地点：后勤处会议室；对象：全校师生。",
+      "请携带相关意见建议材料，现场与后勤处领导面对面交流。"
+    ],
+    "key_info": {
+      "deadline": null,
+      "deadline_ts": null,
+      "audience": "全校师生",
+      "location": "后勤处会议室",
+      "materials": [
+        "相关意见建议材料"
+      ],
+      "contact": null,
+      "fee": null,
+      "extra": {}
+    },
+    "importance": "normal",
+    "category": "后勤",
+    "tags": [
+      "后勤",
+      "接待日",
+      "意见建议",
+      "师生交流"
+    ],
+    "confidence": 0.2,
+    "error": null
+  },
+  {
+    "title": "关于网信中心2026年中秋节期间值班安排的通知",
+    "source": "网信中心·中心通知",
+    "model": "glm-4.7-flash",
+    "summary_lines": [
+      "网信中心发布中秋值班安排，假期网络和一卡通服务有变",
+      "凌水主校区9月25-27日有电话和维修值班，开发区9月25-27日有电话值班",
+      "报修用自助系统或APP，凌水热线81987000/81988000，开发区热线62274381/62274385"
+    ],
+    "key_info": {
+      "deadline": null,
+      "deadline_ts": null,
+      "audience": null,
+      "location": "凌水主校区、开发区校区",
+      "materials": [],
+      "contact": "84707014、81987000、81988000、62274381、62274385",
+      "fee": null,
+      "extra": {}
+    },
+    "importance": "normal",
+    "category": "后勤",
+    "tags": [
+      "值班安排",
+      "网络服务",
+      "一卡通",
+      "中秋",
+      "维修",
+      "自助服务"
+    ],
+    "confidence": 0.2,
+    "error": null
+  },
+  {
+    "title": "面向全校教师开通免费专利申请前评估服务的通知",
+    "source": "图书馆·通知公告",
+    "model": "glm-4.7-flash",
+    "summary_lines": [
+      "图书馆面向全校教师提供免费专利申请前评估服务，先到先得",
+      "全校教师，名额有限（20个），需登录图书馆平台提交委托",
+      "登录图书馆主页或指定网址提交服务委托，咨询电话0411-84708626"
+    ],
+    "key_info": {
+      "deadline": null,
+      "deadline_ts": null,
+      "audience": "全校教师",
+      "location": null,
+      "materials": [],
+      "contact": "0411-84708626",
+      "fee": "免费",
+      "extra": {}
+    },
+    "importance": "normal",
+    "category": "其他",
+    "tags": [
+      "专利",
+      "免费服务",
+      "教师",
+      "图书馆",
+      "成果转化"
+    ],
+    "confidence": 0.8,
+    "error": null
+  },
+  {
+    "title": "关于网信中心2026年9月份“师生接待日”安排的通知",
+    "source": "网信中心·中心通知",
+    "model": "glm-4.7-flash",
+    "summary_lines": [
+      "网信中心9月安排了两次师生接待日，解决信息化问题",
+      "9月9日任立春在312-2，9月23日张鹏在312-1",
+      "建议提前预约，电话84708640，邮箱its@dlut.edu.cn"
+    ],
+    "key_info": {
+      "deadline": null,
+      "deadline_ts": null,
+      "audience": "全校师生",
+      "location": "网信中心312-2、312-1",
+      "materials": [],
+      "contact": "84708640、its@dlut.edu.cn",
+      "fee": null,
+      "extra": {}
+    },
+    "importance": "normal",
+    "category": "其他",
+    "tags": [
+      "师生接待日",
+      "网信中心",
+      "预约",
+      "大连理工大学"
+    ],
+    "confidence": 0.9,
+    "error": null
+  }
+]

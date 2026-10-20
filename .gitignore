@@ -1,0 +1,62 @@
+# ---------- 密钥与本地配置 ----------
+# .env 里放着真实的 AI_API_KEY，永远不要提交
+.env
+.env.local
+*.key
+key.properties
+
+# ---------- 数据库 ----------
+# 仓库里不放抓回来的真实数据（264 条），首次运行会自动建库
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# ---------- 运行时产物 ----------
+logs/
+state/
+crash.log
+*.log
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+dist/
+build/
+
+# ---------- 便携版自带的 Python 运行时（175MB，不进仓库）----------
+python/
+
+# ---------- Flutter / Dart ----------
+app/.dart_tool/
+app/.flutter-plugins
+app/.flutter-plugins-dependencies
+app/build/
+app/android/.gradle/
+app/android/local.properties
+app/ios/Pods/
+app/ios/.symlinks/
+*.iml
+
+# ---------- 编辑器 / 系统 ----------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- 临时诊断产物 ----------
+_extract/
+_diag/
+*.bak
+*_before_*.db

@@ -1,0 +1,46 @@
+# 示例来源 1：教务处通知（HTML 列表，离线样例）
+#
+# transport: file 表示读取本地样例文件，用于无网环境开发与回归测试。
+# 接真实站点时，把下面改成：
+#   url: https://jwc.你的学校.edu.cn/tzgg.htm
+#   config.transport: http
+#   config.file: 删掉
+# 并把 list_selector / fields 改成目标页面的真实选择器
+# （用浏览器 F12 看列表项的 DOM 结构即可）。
+
+name: 示例大学教务处通知
+school: 示例大学
+adapter: html_list
+url: tests/fixtures/demo_jwc.html
+category_hint: 教务
+enabled: false   # 阶段1 的离线样例，已由真实大工来源替代；需要时改回 true
+
+config:
+  transport: file
+  file: tests/fixtures/demo_jwc.html
+  url_base: tests/fixtures/
+
+  # 列表里每一条的 CSS 选择器
+  list_selector: "ul.news-list li"
+
+  # 相对「列表项」的选择器；`a@href` 表示取 a 标签的 href 属性
+  fields:
+    title: "a"
+    url: "a@href"
+    date: "span.date"
+
+  date_format: "%Y-%m-%d"
+  # 日期解析兜底正则（页面给的日期格式五花八门时很有用）
+  date_regex: "(20\\d{2})[-/年](\\d{1,2})[-/月](\\d{1,2})"
+
+  # 进详情页抓正文 —— AI 摘要的质量主要取决于这一步
+  follow_detail: true
+  detail:
+    content_selector: "div.v_news_content"
+    date_selector: "span.publish-date"
+
+  pagination:
+    max_pages: 1
+    next_selector: "div.pager a.next"
+
+  max_items: 30

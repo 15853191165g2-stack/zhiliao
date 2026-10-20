@@ -1,0 +1,349 @@
+﻿<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd"><HTML><HEAD><TITLE>工作动态-大连理工大学研究生院（新）</TITLE><meta name="pageType" content="2">
+<meta name="pageTitle" content="工作动态">
+<META Name="keywords" Content="研究院new" />
+
+
+
+
+
+<META content="text/html; charset=UTF-8" http-equiv="Content-Type">
+<META content="IE=EmulateIE8" http-equiv="X-UA-Compatible">
+
+<META name="description" content="">
+<META name="generator" content="">
+<META name="copyright" content="大连理工大学研究生院">
+<META name="robots" content="index, follow">
+<META name="googlebot" content="index, follow"><LINK rel="stylesheet" type="text/css" href="css/global.css">
+
+
+
+<!--Announced by Visual SiteBuilder 9-->
+<script language="javascript" src="_sitegray/_sitegray.js"></script>
+<!-- CustomerNO:77656262657232307973475d52575742000500004f524f53 -->
+<link rel="stylesheet" type="text/css" href="list.vsb.css" />
+<script type="text/javascript" src="/system/resource/js/counter.js"></script>
+<script type="text/javascript">_jsq_(1205,'/list.jsp',-1,1502106601)</script>
+</HEAD>
+<BODY>
+<DIV class="bg01">
+<DIV class="wrapper">
+<DIV class="fl"><A href="index.htm"><IMG alt="" src="images/logo.png"></A></DIV>
+<DIV class="index_header fr">
+<DIV class="index_lan"><A href="index.htm">中文</A><a href="javascript:void(0)"><A href="http://gmis.dlut.edu.cn" target="_blank">返回旧版</A></DIV>
+<DIV class="index_search"><!-- 3.1.3版本 -->
+
+
+
+<script language="javascript" src="/system/resource/js/base64.js"></script><script language="javascript" src="/system/resource/js/jquery/jquery-latest.min.js"></script><script language="javascript" src="/system/resource/vue/vue.js"></script><script language="javascript" src="/system/resource/vue/bluebird.min.js"></script><script language="javascript" src="/system/resource/vue/axios.js"></script><script language="javascript" src="/system/resource/vue/polyfill.js"></script><script language="javascript" src="/system/resource/vue/token.js"></script><LINK href="/system/resource/vue/static/element/index.css" type="text/css" rel="stylesheet"><script language="javascript" src="/system/resource/vue/static/element/index.js"></script><script language="javascript" src="/system/resource/vue/static/public.js"></script><script language="javascript" src="/system/resource/openapp/search/js/containsHtmlTags.js"></script><script language="javascript" src="/system/resource/openapp/search/layui/layui.js"></script><div id="divu0"></div>
+<script type="text/html" id="htmlu0">
+    <div id="appu0">
+        <div v-if="!isError">
+           <table border="0" cellspacing="1" cellpadding="0">
+      <tbody><tr>
+           <td valign="middle" nowrap="nowrap" height="22">
+            
+                    </td><td>
+            
+                
+                <input class="input" name="INTEXT"  v-model=query.keyWord @keyup.enter="onSubmit">
+           </td>
+           <td align="absmiddle" nowrap="nowrap" height="1">
+                    <input class="btn" type="submit" v-on:click="onSubmit()"  name="FindButton" value="  ">
+
+           </td>
+      </tr>
+ </tbody></table>
+        </div>
+        <div v-if="isError" style="color: #b30216; font-size:18px;text-align: center;padding:20px;">
+            应用维护中！
+        </div>
+    </div>
+</script>
+<script>
+    $("#divu0").html($("#htmlu0").text());
+</script>
+<script>
+    var appOwner = "1502106601";
+    var token = gettoken(10);
+    var urlPrefix = "/aop_component/";
+
+    jQuery.support.cors = true;
+    $.ajaxSetup({
+        beforeSend: function (request, settings) {
+            request.setRequestHeader("Authorization", token);
+            request.setRequestHeader("owner", appOwner);
+        }
+    });
+
+    new Vue({
+        el: "#appu0",
+        data: function () {
+            return {
+                query: {
+                    keyWord: "",//搜索关键词
+                    owner: appOwner,
+                    token: token,
+                    urlPrefix: urlPrefix,
+                    lang:"i18n_zh_CN"
+                },
+                isError: false
+            }
+        },
+        mounted: function () {
+            var _this = this;
+            // _this.init();
+        },
+        methods: {
+            init: function(){
+                $.ajax({
+                    url: "/aop_component//webber/search/test",
+                    type: "get",
+                    success: function (response) {
+                        if (response.code == "0000") {
+                        } else if (response.code == "220") {
+                            _this.isError = true;
+                            console.log(response);
+                        } else if (!response.code) {
+                            _this.isError = true;
+                            console.log(response);
+                        }
+                    },
+                    error: function (response) {
+                        _this.isError = true;
+                    }
+                });
+            },
+            onSubmit: function (e) {
+                var url = "/aop_views/search/modules/resultpc/soso.html";
+                if ("10" == "1" || "10" == "2") {
+                    url = "" + url;
+                }
+                var _this = this;
+                var query = _this.query;
+                if (url.indexOf("?") > -1) {
+                    url = url.split("?")[0];
+                }
+                if (query.keyWord) {
+                    var query = new Base64().encode(JSON.stringify(query));
+                    window.open(url + "?query=" + query);
+                } else {
+                    alert("请填写搜索内容")
+                }
+            },
+        }
+    })
+</script>
+
+<script>
+   var appElementu0 = document.querySelector("#appu0");
+   if (appElementu0 && appElementu0.__vue__) {
+
+   } else {
+      $("#divu0").html($("#htmlu0").text());
+      var appOwner = "1502106601";   
+      var urlPrefix = "/aop_component/";
+      var ifLogin="";
+      var token = ifLogin=='true'?gettoken(10, true).trim():'tourist';
+      if (containsHtmlTags(token) || !token) { 
+         token = 'tourist';
+      }
+      jQuery.support.cors = true;
+      $.ajaxSetup({
+        beforeSend: function (request, settings) {
+            request.setRequestHeader("Authorization", token);
+            request.setRequestHeader("owner", appOwner);
+        }
+      });
+      var queryInfou0 = {
+        query: {
+            keyWord: "",//搜索关键词
+            owner: appOwner,
+            token: token,
+            urlPrefix: urlPrefix,
+            lang:"i18n_zh_CN"
+        },
+        isError: false
+      };
+      function keyUpFunu0(e){
+        var theEvent = e || window.event;
+        var keyCode = theEvent.keyCode || theEvent.which || theEvent.charCode;
+        if(keyCode == 13){
+          onSubmitu0();
+        }
+      };
+
+      function onSubmitu0(e) {
+        queryInfou0.query.keyWord= $("#appu0  .qwss").val();
+        
+        var url = "/aop_views/search/modules/resultpc/soso.html";      
+        if ("10" == "1" || "10" == "2") {
+           url = "" + url;
+        }
+        var query = queryInfou0.query;
+        if (url.indexOf("?") > -1) {
+            url = url.split("?")[0];
+        }
+        if (query.keyWord) {
+            var query = new Base64().encode(JSON.stringify(query));
+            window.open(url + "?query=" + query);
+        } else {
+            alert("请填写搜索内容")
+        }
+      };
+   }
+</script></DIV></DIV>
+<DIV class="cb"></DIV><UL id="nav" class="nav clearfix">
+<LI class="nLi on">
+<H3><A href="index.htm">首页</A></H3></LI>
+<LI class="nLi">
+<H3><A href="jgshe_zhi/yan_j.htm">机构设置</A></H3>
+<UL class="sub" style="width:190px;">
+<LI><A href="jgshe_zhi/yan_j.htm">研院简介</A> </LI>
+<LI><A href="jgshe_zhi/jgshe_zhi.htm">机构设置</A> </LI>
+<LI><A href="jgshe_zhi/jgren_yuan.htm">机构人员</A> </LI>
+<LI><A href="jgshe_zhi/yxgzrenyuan.htm">院系工作人员</A> </LI>
+</UL></LI>
+
+<LI class="nLi">
+<H3><A href="yjszs.htm" target="_blank">研究生招生</A></H3>
+</LI>
+
+<LI class="nLi">
+<H3><A href="yjspy/pygcguan_li/zytz.htm">研究生培养</A></H3>
+<UL class="sub" style="width:207px;">
+<LI><A href="yjspy/pygcguan_li/zytz.htm">培养过程管理</A> </LI>
+<LI><A href="yjspy/xwgl12/zxgong_goa.htm">学位管理</A> </LI>
+<LI><A href="yjspy/wjxz.htm">文件下载</A> </LI>
+</ul>
+</LI>
+<LI class="nLi">
+<H3><A href="" style="padding:0 66px 0 67px;">导师队伍</A></H3>
+<UL class="sub" style="width:201px;">
+<LI><A href="http://faculty.dlut.edu.cn" style="padding:0 66px 0 67px;">导师信息</A> </LI>
+<LI><A href="dsdw/zcfg.htm" style="padding:0 66px 0 67px;">政策文件</A> </LI>
+<LI><A href="dsdw/wjxz.htm" style="padding:0 66px 0 67px;">文件下载</A> </LI>
+</UL>
+</LI>
+
+<LI class="nLi">
+<H3><A href="kcsj.htm" target="_blank">科创实践</A></H3>
+</LI>
+
+</UL>
+
+<script type="text/javascript" src="js/jquery.min.js"></script>
+
+<script type="text/javascript" src="js/jsd.js"></script>
+<script type="text/javascript" src="js/jquery.SuperSlide.js"></script>
+
+<script id="jsID" type="text/javascript">
+            
+            jQuery("#nav").slide({ 
+                type:"menu",// 效果类型，针对菜单/导航而引入的参数（默认slide）
+                titCell:".nLi", //鼠标触发对象
+                targetCell:".sub", //titCell里面包含的要显示/消失的对象
+                effect:"slideDown", //targetCell下拉效果
+                delayTime:300 , //效果时间
+                triggerTime:0, //鼠标延迟触发时间（默认150）
+                returnDefault:true //鼠标移走后返回默认状态，例如默认频道是“预告片”，鼠标移走后会返回“预告片”（默认false）
+            });
+        </script></DIV></DIV>
+<DIV class="wrapper bg02">    <script language="javascript" src="/system/resource/js/dynclicks.js"></script>
+         
+             <IMG src="images/ny_banner.jpg" width="1210" height="143"> 
+
+
+
+
+<DIV class="ny_left fl">
+<DIV class="t">
+工作动态</DIV>
+<DIV class="con">
+
+<ul>
+            <li><a href="gzdt1/yjsyzhb.htm" title="研究生院综合办">研究生院综合办</a></li>
+        <li><a href="gzdt1/yjsgzc.htm" title="研究生工作处">研究生工作处</a></li>
+        <li><a href="gzdt1/yjspyc.htm" title="研究生培养处">研究生培养处</a></li>
+</ul>
+
+ </DIV></DIV>
+<DIV class="ny_right fr">
+<DIV class="t"><SPAN>
+工作动态</SPAN>
+<DIV class="pos"><div>
+    当前位置: 
+                        <a href="index.htm">首页</a>
+                >>
+                <a href="gzdt1.htm">工作动态</a>
+</div></DIV></DIV>
+<DIV class="list">
+
+
+<script language="javascript" src="/system/resource/js/centerCutImg.js"></script><script language="javascript" src="/system/resource/js/ajax.js"></script><div>
+    <UL>
+        <LI><A href="info/1005/50392.htm" target="_blank">聚焦交叉融合、深耕人才培养——学科交叉导师团队育人机制改革推进交流会顺利召开</A><SPAN class="date">[2026-04-29]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="https://news.dlut.edu.cn/info/1022/136495.htm" target="_blank">学校召开新学期研究生教育工作部署会</A><SPAN class="date">[2026-03-18]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="https://news.dlut.edu.cn/info/1026/136255.htm" target="_blank">研究生院（卓工学院）召开新学期全体会议</A><SPAN class="date">[2026-03-16]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="https://news.dlut.edu.cn/info/1011/132115.htm" target="_blank">【锻造新优势】卓越工程师培养，大工在行动！</A><SPAN class="date">[2025-12-12]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="info/1005/17316.htm" target="_blank">凝心聚力，卓越发展 ——研究生院召开新学期全体会议</A><SPAN class="date">[2025-09-16]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="https://news.dlut.edu.cn/info/1022/122474.htm" target="_blank">2025年全国研究生招生工作学术研讨及培训会在我校召开</A><SPAN class="date">[2025-07-09]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="https://news.dlut.edu.cn/info/1022/114484.htm" target="_blank">学校召开新学期研究生教育高质量发展工作会议</A><SPAN class="date">[2025-03-13]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="https://portal.dlut.edu.cn/tp/index.html#act=sems-tp-nup_28585749&contentid=&ownerid=&website=0&pim_id=3236827236179968" target="_blank">关于召开新学期研究生教育高质量发展工作会议的通知</A><SPAN class="date">[2025-03-05]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="https://news.dlut.edu.cn/info/1022/104174.htm" target="_blank">学校召开2024年秋季学期研究生教育工作部署会</A><SPAN class="date">[2024-09-26]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="https://news.dlut.edu.cn/info/1022/123514.htm" target="_blank">学校举办2025年度首聘研究生导师培训会</A><SPAN class="date">[2025-07-25]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="https://news.dlut.edu.cn/info/1023/120734.htm" target="_blank">学校召开十二届学位评定委员会第十四次会议</A><SPAN class="date">[2025-06-17]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="info/1204/16396.htm" target="_blank">关于“兆易创新杯”第二十届中国研究生电子设计竞赛大连理工大学校内选拔赛通知</A><SPAN class="date">[2025-04-03]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="https://portal.dlut.edu.cn/tp/index.html#act=sems-tp-nup_28585749&contentid=&ownerid=&website=0&pim_id=7851816781651968" target="_blank">关于举办教师关爱计划（第四期）之“构建和谐导学关系”主题沙龙的通知</A><SPAN class="date">[2025-03-18]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="https://news.dlut.edu.cn/info/1023/104774.htm" target="_blank">学校召开十二届学位评定委员会第十一次会议</A><SPAN class="date">[2024-09-30]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="info/1005/14746.htm" target="_blank">卓越导师风采展之刘秀平教授</A><SPAN class="date">[2024-06-24]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="https://news.dlut.edu.cn/info/1025/98674.htm" target="_blank">国家卓越工程师学院与中国航天科工集团有限公司组织开展校企导师合作研讨会</A><SPAN class="date">[2024-06-21]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="info/1005/14646.htm" target="_blank">卓越导师风采展之王同敏教授团队</A><SPAN class="date">[2024-06-07]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="info/1005/14616.htm" target="_blank">卓越导师风采展之曹暾教授团队</A><SPAN class="date">[2024-05-31]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="https://news.dlut.edu.cn/info/1022/83136.htm" target="_blank">学校召开2023年秋季学期研究生教育工作部署会</A><SPAN class="date">[2023-09-25]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    <LI><A href="info/1204/12977.htm" target="_blank">市校协同共话拔尖创新人才培养 推进“政产学研”协同育人机制建设</A><SPAN class="date">[2022-09-26]</SPAN> 
+<DIV class="cb"></DIV></LI>
+    </UL>
+    <div align="center"><INPUT TYPE="hidden" NAME="actiontype" VALUE=""><input type="hidden" name="_scode_" value="1790752631287"><input type="hidden" name="urltype" value="tree.TreeTempUrl"><input type="hidden" name="wbtreeid" value="1205"><input type="hidden" name="outFlag" value="false">
+<style type="text/css">
+.headStyle29p8bjq0sb, .headStyle29p8bjq0sb td, .headStyle29p8bjq0sb div {font-size: 12px;font-family:宋体; color: #000000; margin-left: auto; margin-right: auto; line-height:14px;}
+.defaultButtonStyle {font-size: 12px;font-family:宋体; height:20px;color: #000000;BORDER: #AFD5F5 1px solid; margin: 0px;padding: 0px; FILTER:progid:DXImageTransform.Microsoft.Gradient(GradientType=0,StartColorStr=#ffffff, EndColorStr=#BDDBF7);  CURSOR: pointer; line-height:14px;background:-webkit-gradient(linear, 0 0, 0 100%, from(#ffffff), to(#BDDBF7));background: -moz-linear-gradient( top,#ffffff,#BDDBF7);background:-ms-linear-gradient(top,#ffffff 0%,#bddbf7 100%);}
+.defaultinputStyle {font-size: 12px;font-family:宋体; height:20px; border:1px solid #AFD5F5; line-height:14px;}
+.colHeader {font-size: 12px;font-family:宋体; line-height:14px;}
+.headStyle29p8bjq0sb a, .pageList .this-page {font-size: 12px;font-family:宋体; display:inline-block; height:14px; padding: 2px 4px; border: solid 1px #AFD5F5; background: #fff; text-decoration: none; MARGIN-RIGHT: 1px;line-height:14px;}
+.headStyle29p8bjq0sb a:visited {font-size: 12px;font-family:宋体; color: #000000; text-decoration: none; line-height:14px;}
+.headStyle29p8bjq0sb .PrevDisabled {font-size: 12px;font-family:宋体; display:inline-block;height:14px;  margin-right: 3px; padding: 2px 4px; background: #fff;color:#ccc;border: solid 1px #AFD5F5; line-height:14px;}
+.headStyle29p8bjq0sb .SelectList {font-size: 12px;font-family:宋体;line-height:14px;}
+.headStyle29p8bjq0sb .Prev { font-size: 12px;font-family:宋体; margin-right: 3px; padding: 2px 4px;line-height:14px;}
+.headStyle29p8bjq0sb .break {font-size: 12px;font-family:宋体; border: none; text-decoration: none; line-height:14px;}
+.headStyle29p8bjq0sb .NextDisabled { font-size: 12px;font-family:宋体;display:inline-block; height:14px; margin-left: 2px; padding: 2px 4px;background: #fff;color:#ccc;border: solid 1px #AFD5F5; line-height:14px;}
+.headStyle29p8bjq0sb .Next { font-size: 12px;font-family:宋体; margin-left: 2px; padding: 2px 4px;line-height:14px;}
+.headStyle29p8bjq0sb .this-page {font-size: 12px;font-family:宋体;display:inline-block;height:14px;padding: 2px 4px; border: solid 1px #AFD5F5; background: #E1F0FD; font-weight: bold; color:black; MARGIN-RIGHT: 1px;line-height:14px;}
+.headStyle29p8bjq0sb a:hover {font-size: 12px;font-family:宋体;color: black; background: #EFF7FE; border-color: #AFD5F5; text-decoration: none;line-height:14px;}
+.headStyle29p8bjq0sb a:link {font-size: 12px;font-family:宋体;color: #000000; text-decoration: none;line-height:14px;}
+.headStyle29p8bjq0sb a:active { font-size: 12px;font-family:宋体;color: black; text-decoration: none; background: #EFF7FE; line-height:14px;}
+</style><script language="javascript" src="/system/resource/js/gotopage.js"></script><script type="text/javascript">function a195409_gopage_fun(){_simple_list_gotopage_fun(5,'a195409GOPAGE',2)}</script><table cellspacing="0" cellpadding="0" border="0"><TR><td colspan="0"><table cellspacing="0" class="headStyle29p8bjq0sb" width="100%" cellpadding="1"><tr valign="middle"><TD nowrap align="left" width="1%" id="fanye195409">共83条&nbsp;&nbsp;1/5&nbsp;</td><td nowrap align="left"><div><span class="PrevDisabled">首页</span><span class="PrevDisabled">上页</span><a href="gzdt1/4.htm" class="Next">下页</a><a href="gzdt1/1.htm" class="Next">尾页</a>&nbsp;&nbsp;<input align="absmiddle" type="button" class="defaultButtonStyle" id="gotopagebut" name="a195409Find" value="转到" onclick="javascript:a195409_gopage_fun()"><INPUT size="2" align="absmiddle" class="defaultInputStyle" NAME="a195409GOPAGE" id="a195409GOPAGE" VALUE="" style="margin-left:1px;margin-right:1px">页</div></td></tr></table></table></div>
+</div><script>_showDynClickBatch(['dynclicks_u7_50392','dynclicks_u7_49622','dynclicks_u7_49602','dynclicks_u7_48452','dynclicks_u7_17316','dynclicks_u7_16966','dynclicks_u7_16176','dynclicks_u7_16036','dynclicks_u7_15236','dynclicks_u7_17076','dynclicks_u7_16876','dynclicks_u7_16396','dynclicks_u7_16236','dynclicks_u7_15266','dynclicks_u7_14746','dynclicks_u7_14726','dynclicks_u7_14646','dynclicks_u7_14616','dynclicks_u7_13508','dynclicks_u7_12977'],[50392,49622,49602,48452,17316,16966,16176,16036,15236,17076,16876,16396,16236,15266,14746,14726,14646,14616,13508,12977],"wbnews", 1502106601)</script></DIV></DIV>
+<DIV class="cb"></DIV>
+<DIV class="footer"><!-- 版权内容请在本组件"内容配置-版权"处填写 -->
+<p>邮政编码：116024 传真：0411-84707700 电话：0411-84708330 E-mail:yjsyzhb@dlut.edu.cn<br />通讯地址：辽宁省大连市甘井子区凌工路2号，大连理工大学研究生院</p></DIV></DIV>
+
+</BODY></HTML>

@@ -1,0 +1,330 @@
+# ============================================================================
+# 大连理工大学 · 盘锦校区 + 校级官网通知来源（附录2「学校常用官网」）
+# ----------------------------------------------------------------------------
+# 来源：腾讯文档《【新生攻略】2026大连理工大学盘锦校区》附录2
+#      https://docs.qq.com/doc/DVG5Kc0RhVWJoQmtD
+#
+# 与 dlut_org.yaml 的关系：那份接的是**凌水主校区**的职能部处（teach / xsc /
+# houqin / gs / its / lib / tuanwei），这份接的是**盘锦校区**的部处 + 校级门户。
+# 两个校区是独立的博达实例，模板也不同，选择器不能互相套用。
+#
+# 实测结构（2026-10-18，全部抓真实 HTML 存档在 _extract/panjin/ 后确认）：
+#
+#   E. 博达「卡片列表」版（盘锦教学部 / 学生工作部 / 总务部）
+#        <div class="space-y-6"><a id="line_u7_0" href="../info/1261/3262.htm">
+#          <div ...><div class="flex-none ...">      ← 日期块
+#                   <p>21</p><p>2026-07</p>          ← 「日」和「年-月」被拆成两个 <p>
+#                 </div><h3>标题</h3></div></a> …
+#        锚点用 `a[id^="line_"]`，**不要**用那一长串 Tailwind class（顺序会变）。
+#        日期靠 date_extract_regex + date_format="%d %Y-%m" 拼回来。
+#
+#   F. 博达「普通 li」版（团委 / 档案馆 / 国际合作处 / 图书馆）
+#        团委    <div class="list"><a class="box"><span id="list_title">标题</span>
+#                                    <span id="list_span">[2026-10-16]</span></a>
+#        图书馆  <ul class="nytzlist"><li><a>…</a><span>日期</span></li>
+#        档案馆/国际合作处  <ul><li><a>标题</a><span>日期</span></li></ul>
+#
+#   G. 门户自建模板（panjin.dlut.edu.cn / www.dlut.edu.cn）
+#        盘锦  <div class="common tzgg"><div class="tz"><ul>
+#                <li><a class="flex" href="info/1141/54144.htm">
+#                  <h3 class="elise">· 标题</h3><span>2026.09.23</span></a></li>
+#        校级  <ul class="ul-listls2"><li class="fadeInUp wow"><a>标题</a><span>2026.09.07</span>
+#
+# ⚠️ robots.txt：本批站点的 /robots.txt 一律**强制断连**（curl rc=56、
+#    httpx ReadError），首页却正常 200。按 RFC 9309「无法获取即不限制」处理，
+#    抓取层 app/services/fetch.py 也是这个行为（拿不到 parser 就放行）。
+#    但只抓公开列表与详情，不碰任何需要登录的入口。
+#
+# ⚠️ 未接入的站点（附录2 里有，但抓不了或不是通知流）：
+#    · https://sso.dlut.edu.cn/            统一身份认证，需登录；抓别人账号是越界
+#    · https://its.dlut.edu.cn/…/sysm.htm  正版软件服务**单页说明**，没有列表
+#    · https://zs.dlut.edu.cn/             招生网是 Vue SPA（<div id="app"> 空壳），
+#                                          HTML 里没有任何条目，需浏览器渲染
+#    · http://job.dlut.edu.cn/             就业网列表由前端 JS 调接口渲染
+#    · http://info.dlut.edu.cn/            信息公开网是**制度/年报目录**，不是通知流
+# ============================================================================
+
+# ---------------------------------------------------------------------------
+# 校级 / 校区门户
+# ---------------------------------------------------------------------------
+- name: 大连理工大学·通知公告
+  school: 大连理工大学
+  adapter: html_list
+  url: https://www.dlut.edu.cn/tzgg.htm
+  category_hint: 综合
+  enabled: true
+  # 实测 8 条；页面上部分条目的链接指向 mp.weixin.qq.com（学校用公众号发通知）
+  config:
+    list_selector: "ul.ul-listls2 > li"
+    fields:
+      title: "a"
+      url: "a@href"
+      date: "span"
+    date_extract_regex: '20\d{2}\.\d{1,2}\.\d{1,2}'
+    # a 里除了标题还塞了「日期 来源：」，不清掉会显示成
+    # 「关于2026年中秋节、国庆节放假安排的通知 2026.09.07 来」
+    title_cleanup_regex: '\s+20\d{2}\.\d{1,2}\.\d{1,2}.*$'
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+
+- name: 盘锦校区·通知公告
+  school: 大连理工大学
+  adapter: html_list
+  url: http://panjin.dlut.edu.cn/tzgg.htm
+  category_hint: 综合
+  enabled: true
+  # 实测 12 条。列表里会混入转自总务部等其他站的链接（绝对地址），
+  # 那些与总务部来源的 URL 相同，靠 dedup_key 去重，不会重复入库。
+  config:
+    list_selector: "div.common.tzgg div.tz > ul > li"
+    fields:
+      title: "h3"
+      url: "a@href"
+      date: "span"
+    date_extract_regex: '20\d{2}\.\d{1,2}\.\d{1,2}'
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+
+# ---------------------------------------------------------------------------
+# 盘锦校区教学与科研工作部（附录2 里标注「很常用」）
+# ---------------------------------------------------------------------------
+# 该站没有统一的「通知公告」栏目，通知按业务分散在各栏目下。
+# 这里接最常看的 3 个：选课、考试、学籍。其余栏目（教改/实践/质量/招生…）
+# 结构完全相同，需要时按同样写法加一条即可。
+#
+# 日期是「日」和「年-月」两个 <p>，必须靠正则拼回来：
+#   整行文本 "21 2026-07 关于2025-2026学年春季、夏季学期本科生课程补缓考的通知"
+#   date_extract_regex 抠出 "21 2026-07" → date_format "%d %Y-%m"
+- name: 盘锦教学部·课程与选课
+  school: 大连理工大学
+  adapter: html_list
+  url: http://pjteach.dlut.edu.cn/jxyx/kcyxkgl.htm
+  category_hint: 教务
+  enabled: true
+  # 实测 5 条
+  config:
+    list_selector: 'div.space-y-6 > a[id^="line_"]'
+    fields:
+      title: "h3"
+      url: "@href"
+    date_extract_regex: '\d{1,2}\s+20\d{2}-\d{1,2}'
+    date_format: "%d %Y-%m"
+    item_url_regex: '/info/\d+/\d+\.htm'
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+
+- name: 盘锦教学部·考试管理
+  school: 大连理工大学
+  adapter: html_list
+  url: http://pjteach.dlut.edu.cn/jxyx/ksgl.htm
+  category_hint: 考试
+  enabled: true
+  # 实测 2 条（该栏目更新很慢，但考试通知都在这儿）
+  config:
+    list_selector: 'div.space-y-6 > a[id^="line_"]'
+    fields:
+      title: "h3"
+      url: "@href"
+    date_extract_regex: '\d{1,2}\s+20\d{2}-\d{1,2}'
+    date_format: "%d %Y-%m"
+    item_url_regex: '/info/\d+/\d+\.htm'
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+
+- name: 盘锦教学部·学籍证件
+  school: 大连理工大学
+  adapter: html_list
+  url: http://pjteach.dlut.edu.cn/jxgz/xjzj.htm
+  category_hint: 教务
+  enabled: true
+  # 实测 3 条
+  config:
+    list_selector: 'div.space-y-6 > a[id^="line_"]'
+    fields:
+      title: "h3"
+      url: "@href"
+    date_extract_regex: '\d{1,2}\s+20\d{2}-\d{1,2}'
+    date_format: "%d %Y-%m"
+    item_url_regex: '/info/\d+/\d+\.htm'
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+
+# ---------------------------------------------------------------------------
+# 盘锦校区学生发展与事务工作部
+# ---------------------------------------------------------------------------
+- name: 盘锦学生工作部·通知公告
+  school: 大连理工大学
+  adapter: html_list
+  url: http://xsgzb.dlut.edu.cn/index/tzgg.htm
+  category_hint: 奖助
+  enabled: true
+  # 实测 10 条。奖助学金、评奖评优、学生事务都在这里。
+  config:
+    list_selector: 'div.space-y-6 > a[id^="line_"]'
+    fields:
+      title: "h3"
+      url: "@href"
+    date_extract_regex: '\d{1,2}\s+20\d{2}-\d{1,2}'
+    date_format: "%d %Y-%m"
+    item_url_regex: '/info/\d+/\d+\.htm'
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+
+# ---------------------------------------------------------------------------
+# 盘锦校区总务部（附录2：查看后勤安排、假期班车等）
+# ---------------------------------------------------------------------------
+- name: 盘锦总务部·工作通知
+  school: 大连理工大学
+  adapter: html_list
+  url: http://pjxqzwb.dlut.edu.cn/index/gztz.htm
+  category_hint: 后勤
+  enabled: true
+  # 实测 10 条。班车、食堂、水电、校园网升级都在这里。
+  config:
+    list_selector: 'div.space-y-6 > a[id^="line_"]'
+    fields:
+      title: "h3"
+      url: "@href"
+    date_extract_regex: '\d{1,2}\s+20\d{2}-\d{1,2}'
+    date_format: "%d %Y-%m"
+    item_url_regex: '/info/\d+/\d+\.htm'
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+
+- name: 盘锦总务部·公示公告
+  school: 大连理工大学
+  adapter: html_list
+  url: http://pjxqzwb.dlut.edu.cn/index/gsgg.htm
+  category_hint: 后勤
+  enabled: true
+  # 实测 10 条。采购成交公告较多，对普通学生价值一般，但「招聘/停电停水」类在里面。
+  config:
+    list_selector: 'div.space-y-6 > a[id^="line_"]'
+    fields:
+      title: "h3"
+      url: "@href"
+    date_extract_regex: '\d{1,2}\s+20\d{2}-\d{1,2}'
+    date_format: "%d %Y-%m"
+    item_url_regex: '/info/\d+/\d+\.htm'
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+
+# ---------------------------------------------------------------------------
+# 盘锦校区图书馆
+# ---------------------------------------------------------------------------
+- name: 盘锦图书馆·新闻通知
+  school: 大连理工大学
+  adapter: html_list
+  url: http://pjlib.dlut.edu.cn/xw/xwtz.htm
+  category_hint: 后勤
+  enabled: true
+  # 实测 12 条。开放时间、闭馆、入馆考试、借阅规则都在这儿。
+  # ⚠️ 这个站的结构是 <time class="time"><span>2026</span>09-23</time>：
+  #    年份在 <span> 里、月日在后面裸文本，get_text 出来是「2026 09-23」。
+  #    第一版正则只写了 2026-09-23 / 2026.09.23，匹配不到就 fallback 到整行，
+  #    结果 12 条全被解析成页面别处的同一个日期（2025-10-17）——
+  #    这种「日期不报错但全错」的情况，只能靠抓完看 min/max 发现。
+  config:
+    list_selector: "ul.nytzlist > li"
+    fields:
+      title: "h4"
+      url: "a@href"
+      date: "time"
+    date_extract_regex: '20\d{2}\s+\d{1,2}-\d{1,2}'
+    date_format: "%Y %m-%d"
+    # a 里把日期（2026 09-23）和「了解详情」也包进去了，清掉
+    title_cleanup_regex:
+      - '^\d{4}\s+\d{1,2}-\d{1,2}\s+'
+      - '\s*了解详情\s*$'
+    item_url_regex: '/info/\d+/\d+\.htm'
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+
+# ---------------------------------------------------------------------------
+# 盘锦校区团委
+# ---------------------------------------------------------------------------
+- name: 盘锦团委·通知公告
+  school: 大连理工大学
+  adapter: html_list
+  url: http://pjxqtw.dlut.edu.cn/tzgg.htm
+  category_hint: 活动
+  enabled: true
+  # 实测 14 条。列表项本身就是 <a>，日期带方括号 [2026-10-16]，
+  # 靠 date_extract_regex 去掉括号。
+  config:
+    list_selector: "div.list > a.box"
+    fields:
+      title: "span#list_title"
+      url: "@href"
+      date: "span#list_span"
+    date_extract_regex: '20\d{2}-\d{1,2}-\d{1,2}'
+    item_url_regex: '/info/\d+/\d+\.htm'
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+
+# ---------------------------------------------------------------------------
+# 国际合作与交流处 / 档案馆（校级，盘锦学生也会用到）
+# ---------------------------------------------------------------------------
+- name: 国际合作与交流处·通知公告
+  school: 大连理工大学
+  adapter: html_list
+  url: http://dutdice.dlut.edu.cn/gatjl/tzgg/tzgg.htm
+  category_hint: 活动
+  enabled: true
+  # 实测 20 条，但最新一条是 2021 年 —— 该栏目更新极慢，交换项目多在
+  # 「项目管理」等栏目。保留是为了不漏掉公派/交换的重大通知。
+  # ⚠️ 这里不能用裸的 `ul > li`：页面上有 100+ 个 li，绝大多数是导航菜单，
+  #    实测会抓出 111 条「首页 / 机构设置」。必须锚到 `div.list01`。
+  config:
+    list_selector: "div.list01 > div > ul > li"
+    fields:
+      title: "a"
+      url: "a@href"
+      date: "span.date"
+    date_extract_regex: '20\d{2}[-/]\d{1,2}[-/]\d{1,2}'
+    item_url_regex: 'dutdice\.dlut\.edu\.cn/'
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20
+
+- name: 档案馆·通知
+  school: 大连理工大学
+  adapter: html_list
+  url: http://dangan.dlut.edu.cn/gzdt/dagtz.htm
+  category_hint: 综合
+  enabled: true
+  # 实测 10 条。校史馆参观、档案征集类，频率低但偶有「学籍档案办理」通知。
+  # ⚠️ 同样不能用裸的 `ul > li`（会抓出 47 条导航），锚到 `div.list`。
+  config:
+    list_selector: "div.list > div > ul > li"
+    fields:
+      title: "a"
+      url: "a@href"
+      date: "span.date"
+    date_extract_regex: '20\d{2}[-/]\d{1,2}[-/]\d{1,2}'
+    item_url_regex: '/info/\d+/\d+\.htm'
+    follow_detail: true
+    detail:
+      content_selector: ["#vsb_content", ".v_news_content"]
+    max_items: 20

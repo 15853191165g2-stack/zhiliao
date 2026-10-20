@@ -1,0 +1,51 @@
+# ============================================================
+# 真实学校站点配置模板
+# ============================================================
+# 用法：复制本文件，去掉 .example 后缀（例如 jwc_pku.yaml），
+#       改掉下面 4 个地方，然后调一次 POST /api/sources/reload 即可。
+#       不需要写任何代码。
+#
+# 怎么找选择器：
+#   1. 浏览器打开通知列表页，按 F12
+#   2. 右键列表里某一条的标题 → 检查 → 看它外层是 <li> 还是 <div>
+#   3. 把那个结构写成 list_selector
+#   4. 再看标题、日期分别在哪个子标签里，写进 fields
+# 测试方法：
+#   curl -X POST "http://127.0.0.1:8000/api/sources/1/fetch"
+#   然后看 GET /api/ingest/logs 有没有报错。
+# ============================================================
+
+name: 某某大学教务处通知公告
+school: 某某大学
+adapter: html_list
+url: https://jwc.example.edu.cn/tzgg/index.htm
+category_hint: 教务        # 教务/考试/奖助学金/活动/讲座/就业/后勤
+enabled: true
+
+config:
+  transport: http
+  # 站点是 GBK/GB2312 时写死编码；现代站点留 auto 让它自己侦测
+  encoding: auto
+
+  list_selector: "div.news_list ul li"
+  fields:
+    title: "a"
+    url: "a@href"
+    date: "span.time"
+
+  url_base: https://jwc.example.edu.cn/
+
+  # 固定格式优先，解析不了再用 date_regex，再不行用 dateutil 兜底
+  date_format: "%Y-%m-%d"
+  date_regex: "(20\\d{2})[-/年](\\d{1,2})[-/月](\\d{1,2})"
+
+  follow_detail: true
+  detail:
+    content_selector: "div.content_box"
+    date_selector: "div.article_info"
+
+  pagination:
+    max_pages: 2
+    next_selector: "a.next"
+
+  max_items: 50

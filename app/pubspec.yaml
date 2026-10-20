@@ -1,0 +1,48 @@
+name: quanzhi
+description: 知了 · 只开一个 App，看全学校所有通知，AI 自动提炼并朗读
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # 网络
+  http: ^1.2.2
+
+  # 状态管理（轻量，够用）
+  provider: ^6.1.2
+
+  # 时间与日期格式化
+  intl: ^0.19.0
+
+  # 本地设置持久化
+  shared_preferences: ^2.3.2
+
+  # 打开原文链接
+  url_launcher: ^6.3.1
+
+  # 本地通知（阶段 3）。轮询拉到新通知后用系统通知栏弹出来。
+  #
+  # ⚠️ 版本号**未在本机验证过** —— 这台机器没有 Flutter SDK，
+  #    装不了依赖、跑不了 pub get，所以无从确认这个版本能解析。
+  #    首次在装了 SDK 的机器上构建时，如果报版本解析失败，
+  #    用 `flutter pub add flutter_local_notifications` 让它自己挑一个可用版本。
+  flutter_local_notifications: ^17.2.3
+
+  # ---- 阶段 5 会加入以下依赖（先留注释，避免现在就有解析不到的版本）
+  # flutter_tts: ^4.0.2                # 语音朗读
+  # add_2_calendar: ^3.0.1             # 一键写入系统日历
+  # flutter_secure_storage: ^9.2.2     # 学校登录凭据加密存储（Android Keystore / iOS Keychain）
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

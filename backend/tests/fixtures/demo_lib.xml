@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>示例大学图书馆通知</title>
+    <link>https://lib.example.edu.cn/</link>
+    <description>图书馆开放时间与服务通知</description>
+    <language>zh-cn</language>
+    <item>
+      <title>关于图书馆国庆假期开放时间调整的通知</title>
+      <link>https://lib.example.edu.cn/notice/1001.html</link>
+      <author>图书馆办公室</author>
+      <pubDate>Thu, 01 Oct 2026 08:00:00 +0800</pubDate>
+      <description><![CDATA[
+        <p>各位读者：国庆假期期间，图书馆开放时间调整如下：10月1日至10月3日闭馆，10月4日起恢复正常开放（8:00-22:00）。</p>
+        <p>闭馆期间，还书期限自动顺延，24小时自助还书机正常使用。假期到期的图书统一顺延至10月8日。</p>
+        <p>如有疑问请联系总服务台，电话：010-62780000。</p>
+      ]]></description>
+    </item>
+    <item>
+      <title>图书馆新增“AI 素养”专题数据库试用</title>
+      <link>https://lib.example.edu.cn/notice/1002.html</link>
+      <author>资源建设部</author>
+      <pubDate>Sun, 04 Oct 2026 10:30:00 +0800</pubDate>
+      <description><![CDATA[
+        <p>图书馆即日起开通“AI 素养”专题数据库试用，试用期至2026年12月31日。</p>
+        <p>该数据库收录人工智能领域期刊论文、会议论文与技术报告，支持中文检索。校内外均可通过统一身份认证访问。</p>
+        <p>访问入口：图书馆主页 - 数据库导航 - AI 素养。联系人：王老师，邮箱：lib-res@example.edu.cn。</p>
+      ]]></description>
+    </item>
+  </channel>
+</rss>
