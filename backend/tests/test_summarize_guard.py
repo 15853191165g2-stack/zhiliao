@@ -15,16 +15,31 @@
 **这三行没有一句来自原文**，但看起来完全像真的。用户照着订票就出事了。
 这比「摘要为空」危险得多 —— 空摘要至少不会骗人。
 
-修法：正文短于 `_MIN_AI_CONTENT_CHARS` 就不进 AI 分支，直接用本地规则
-（第 2、3 行是「原文信息较少，建议点开看全文」），并把 `model` 标成
-`local-no-content`，让调用方/统计能看出这批是「没正文的」。
+修法：正文短于 `_MIN_AI_CONTENT_CHARS` 就不进 AI 分支，直接用本地规则出三行，
+并把 `model` 标成 `local-no-content`，让调用方/统计能看出这批是「没正文的」。
+
+## 2026-10-23 补：三行不许复读
+
+上面那个修法当时把第 2、3 行都填成了同一句「原文信息较少，建议点开看全文」。
+结果是**形式上三行齐全、语义上少了一行**：一张卡片上「关键信息」和「该怎么办」
+说的是同一句话。实测 49 条 local-no-content 里有 31 条是这种复读，
+其中还包括「中秋国庆放假安排」「暑假放假安排」这种学生最想知道的。
+
+现在的分工：
+    第 1 行  是什么      —— 标题原文
+    第 2 行  关键信息    —— 截止/地点/对象；都没有时说明「正文没抓到」
+    第 3 行  该怎么办    —— 要交的材料/联系人；都没有时给「点开原文确认」
 """
 
 from __future__ import annotations
 
 import pytest
 
-from app.services.summarize import _FALLBACK_LINE, SummarizeService
+from app.services.summarize import (
+    _ACTION_LINE,
+    _NO_CONTENT_LINE,
+    SummarizeService,
+)
 
 
 @pytest.fixture()
@@ -42,9 +57,12 @@ async def test_empty_content_skips_ai(svc: SummarizeService) -> None:
 
     lines = res.summary.summary_lines
     assert len(lines) == 3, "前端卡片按 3 行排版，缺一行会错位"
-    # 第 2、3 行只能是诚实兜底 —— 不允许凭空补出日期/安排
-    assert lines[1] == _FALLBACK_LINE
-    assert lines[2] == _FALLBACK_LINE
+    assert all(line.strip() for line in lines), "三行都不许空"
+
+    # 三行必须各司其职：第 2 行说「为什么只有标题」，第 3 行说「你能做什么」
+    assert lines[1] == _NO_CONTENT_LINE
+    assert lines[2] == _ACTION_LINE
+    assert lines[1] != lines[2], f"第 2、3 行复读了：{lines[1]!r}"
 
     # 标题里没有具体日期，摘要里也不许冒出来（这些正是当初编造的内容）
     blob = "".join(lines)
@@ -56,6 +74,31 @@ async def test_whitespace_content_skips_ai(svc: SummarizeService) -> None:
     """详情页抓回来一堆空白字符时同样要拦住 —— 别让 AI 拿空白当正文。"""
     res = await svc.summarize(title="2026级新生报到须知", content="   \n\t  \n ")
     assert res.model == "local-no-content"
+
+
+@pytest.mark.parametrize(
+    ("title", "content"),
+    [
+        ("关于放假安排的通知", None),
+        ("关于放假安排的通知", "   "),
+        ("某通知", "正文只有一句话"),
+        ("某通知", "第一句。第二句。第三句。"),
+        ("某通知", "重复句。重复句。重复句。"),
+    ],
+)
+async def test_three_lines_never_repeat(
+    svc: SummarizeService, title: str, content: str | None
+) -> None:
+    """三行各司其职：任何输入下第 2、3 行都不许撞车。
+
+    最后两组是故意找茬：正文只有一句、或者三句一模一样。
+    旧实现在这两种情况下，第 2、3 行都会退化成同一句兜底话术。
+    """
+    res = await svc.summarize(title=title, content=content)
+    lines = res.summary.summary_lines
+    assert len(lines) == 3, (title, content, lines)
+    assert all(line.strip() for line in lines), f"有空行：{lines}"
+    assert lines[1] != lines[2], f"第 2、3 行重复：{lines[1]!r}"
 
 
 async def test_inaccessible_page_content_skips_ai(svc: SummarizeService) -> None:

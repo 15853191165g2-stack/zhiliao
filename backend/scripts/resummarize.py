@@ -76,7 +76,15 @@ async def main() -> None:
                 print("--ids 里没有有效的 id")
                 return
         else:
-            scope = [Notification.content_text.isnot(None)]
+            # 「必须有正文」这个限制只对**默认全量**成立：没有正文的行重跑一遍，
+            # 结果还是同样的本地摘要，纯属浪费。
+            # 但用 --model / --status 明确点名时不能加 ——
+            # 2026-10-23 实测：`--model local-no-content` 本该覆盖 49 条，
+            # 其中 29 条 content_text 是 NULL（不是空串），被这个限制挡掉，
+            # 只跑了 20 条。修兜底话术的人会以为已经改全了。
+            scope = []
+            if args.status == "all" and not args.model:
+                scope.append(Notification.content_text.isnot(None))
             if args.status != "all":
                 scope.append(Notification.ai_status == args.status)
             if args.model:

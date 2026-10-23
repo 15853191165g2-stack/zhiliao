@@ -120,6 +120,15 @@ _AUDIENCE_RE = re.compile(
 
 _FALLBACK_LINE = "原文信息较少，建议点开看全文"
 
+#: 正文没抓到时的第 2 行：说清「为什么只有标题」。
+#: 以前这里和第 3 行填的是同一句 _FALLBACK_LINE，于是一张卡片上
+#: 「关键信息」和「该怎么办」是复读——形式上三行齐全，语义上少了一行。
+#: 实测 2026-10-23：49 条 local-no-content 里有 31 条是这种复读。
+_NO_CONTENT_LINE = "只抓到标题，正文（图片/附件/登录页）没能提取"
+
+#: 第 3 行永远是「你能做什么」：不能是形容词，也不能复读第 2 行。
+_ACTION_LINE = "点开原文确认具体日期和要求"
+
 #: 正文短于这个字数就**不调 AI**，直接用本地规则出摘要。
 #: 为什么：模型手上只有标题时，会把「关于放假安排的通知」编成
 #: 「9月25日至10月7日放假调休」这种**看起来很像真的**具体事实。
@@ -620,7 +629,10 @@ class SummarizeService:
         elif len(sentences) > 1:
             lines.append(sentences[1][:110])
         else:
-            lines.append(_FALLBACK_LINE)
+            # 正文没抓到（纯图片 / PDF / 需登录 / robots 拦）。
+            # 这里只解释「为什么没有关键信息」，不再把兜底话术塞进来——
+            # 那句话该出现在第 3 行，出现在这里就成了复读。
+            lines.append(_NO_CONTENT_LINE)
 
         # 第 3 行：要你做什么
         todo: list[str] = []
@@ -631,7 +643,14 @@ class SummarizeService:
         if not todo and len(sentences) > 2:
             todo.append(sentences[2][:110])
         if not todo:
-            todo.append(_FALLBACK_LINE)
+            # 永远给一个"你能做什么"，绝不重复第 2 行
+            todo.append(_ACTION_LINE)
         lines.append("；".join(todo)[:110])
+
+        # 结构性保证：三行各司其职。第 2、3 行撞车，等于白写了一行。
+        # 这里用兜底纠正而不是 assert —— 这是后台跑批的路径，
+        # 一条格式异常的通知不该让整轮抓取崩掉。真正的防线是 tests/ 里那条用例。
+        if lines[1] == lines[2]:
+            lines[2] = _ACTION_LINE
 
         return lines[:3]
