@@ -167,8 +167,14 @@ def main() -> None:
 
         # ---------------- 收藏 / 已读 / 置顶 ----------------
         log("\n[3] 用户状态：收藏 / 已读 / 置顶")
-        nid = items[0]["id"]
-        # 先记下原始状态，测完还原 —— 验收脚本不该改用户的标记。
+        # ★ 必须挑一条「既没置顶也没收藏」的做目标。
+        #   /pin 和 /star 是**切换**语义：对着用户已经置顶的那条（列表第一条就是）
+        #   调一次，等于把他的置顶取消掉，后面所有断言全红 —— 而代码是对的。
+        #   实测踩过：用户置顶了 id=266，脚本把它取消后还断言"置顶成功"，6 项全 FAIL。
+        pool = [i for i in items if not i.get("is_pinned") and not i.get("is_starred")]
+        nid = (pool or items)[0]["id"]
+        if not pool:
+            log("        !! 前 20 条全都置顶或收藏了，只能退回第一条")
         before = get(f"/notifications/{nid}")["data"]
         orig = {"is_read": bool(before.get("is_read")),
                 "is_starred": bool(before.get("is_starred")),
@@ -194,28 +200,35 @@ def main() -> None:
                   bool(read_only["items"]) and all(i["is_read"] for i in read_only["items"]),
                   f"total={read_only['total']}")
 
-            # ---- 置顶：唯一的可观察效果就是「排到最前」 ----
-            p_on = post(f"/notifications/{nid}/pin", {})["data"]
+            # ---- 置顶：可观察效果是「出现在置顶列表 + 排在最前」 ----
+            # 显式传 is_pinned，不用切换语义 —— 断言不该依赖"用户原来标没标"。
+            p_on = post(f"/notifications/{nid}/pin", {"is_pinned": True})["data"]
             check("置顶成功", p_on.get("is_pinned") is True)
 
-            top = get("/notifications?page=1&page_size=20")["data"]["items"]
-            check("★ 置顶后排到列表第一位", top[0]["id"] == nid,
-                  f"第一位 id={top[0]['id']}，期望 {nid}")
-            check("置顶没有改动发布时间",
-                  top[0].get("published_at") == items[0].get("published_at"))
-
             pinned_only = get("/notifications?pinned_only=true&page_size=100")["data"]
+            pinned_ids = [i["id"] for i in pinned_only["items"]]
+            check("★ 置顶后出现在置顶列表里", nid in pinned_ids, f"{len(pinned_ids)} 条置顶")
             check("只看置顶筛选生效",
                   bool(pinned_only["items"]) and all(i["is_pinned"] for i in pinned_only["items"]),
                   f"total={pinned_only['total']}")
 
-            p_off = post(f"/notifications/{nid}/pin", {})["data"]
+            top = get("/notifications?page=1&page_size=20")["data"]["items"]
+            check("★ 置顶的排在最前（第一条必须已置顶）",
+                  top[0]["is_pinned"] is True, f"第一位 id={top[0]['id']}")
+            check("置顶没有改动发布时间",
+                  get(f"/notifications/{nid}")["data"].get("published_at")
+                  == before.get("published_at"))
+
+            p_off = post(f"/notifications/{nid}/pin", {"is_pinned": False})["data"]
             check("★ 取消置顶", p_off.get("is_pinned") is False)
+            check("取消置顶后不再出现在置顶列表",
+                  nid not in [i["id"] for i in get(
+                      "/notifications?pinned_only=true&page_size=100")["data"]["items"]])
             top2 = get("/notifications?page=1&page_size=20")["data"]["items"]
-            check("取消置顶后回到时间倒序", top2[0]["id"] == items[0]["id"])
+            check("取消置顶后不再排在最前", top2[0]["id"] != nid)
 
             # ---- 收藏 ----
-            s1 = post(f"/notifications/{nid}/star", {})["data"]
+            s1 = post(f"/notifications/{nid}/star", {"is_starred": True})["data"]
             check("收藏成功", s1.get("is_starred") is True)
             starred = get("/notifications?starred_only=true")["data"]
             check("收藏筛选能查到", starred["total"] >= 1, f"total={starred['total']}")

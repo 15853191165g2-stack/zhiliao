@@ -115,7 +115,11 @@ def test_api() -> None:
               all(i["importance"] in ("urgent", "important", "normal") for i in items))
 
         # ---- 详情 ----
-        nid = first["id"]
+        # ★ 目标要挑「没被收藏、没被置顶」的那条：/star 是切换语义，
+        #   用户已经收藏了列表第一条（实测 id=266），再切一次就是取消收藏，
+        #   "POST /star 生效" 会假红。用户的标记不该成为测试的隐含前提。
+        pool = [i for i in items if not i.get("is_starred") and not i.get("is_pinned")]
+        nid = (pool or items)[0]["id"]
         d = get(f"/notifications/{nid}")["data"]
         check("GET /notifications/{id} 可用", d.get("id") == nid)
         check("详情含正文", bool((d.get("content_text") or "").strip()),
@@ -125,12 +129,12 @@ def test_api() -> None:
               str(d.get("ai_status")))
 
         # ---- 已读 / 收藏 ----
-        r1 = post(f"/notifications/{nid}/read", {})["data"]
+        r1 = post(f"/notifications/{nid}/read", {"is_read": True})["data"]
         check("POST /read 生效", r1.get("is_read") is True)
-        s1 = post(f"/notifications/{nid}/star", {})["data"]
+        s1 = post(f"/notifications/{nid}/star", {"is_starred": True})["data"]
         check("POST /star 生效", s1.get("is_starred") is True)
-        s2 = post(f"/notifications/{nid}/star", {})["data"]
-        check("POST /star 可切换", s2.get("is_starred") is False)
+        s2 = post(f"/notifications/{nid}/star", {"is_starred": False})["data"]
+        check("POST /star 可取消", s2.get("is_starred") is False)
 
         # ---- 筛选 ----
         f1 = get("/notifications?starred_only=true")["data"]
