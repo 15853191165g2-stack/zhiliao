@@ -1975,3 +1975,47 @@ GitHub 会重新排序 tree 条目、并规范化 commit message 的尾部换行
 `git update-ref refs/heads/main <远端 sha>`。本地工作区内容不变，`git status` 干净。
 
 位置：`scripts/` 之外的运维脚本，未进仓库；结论记在此处
+
+---
+
+## 59. `github.com` 网页打不开时，怎么把 SSH 公钥装上去
+
+**场景**（2026-10-21~23）：这台机器到 `github.com:443` 的 TCP 被阻断 ——
+直连超时 21s、走代理 000，连续两天 100% 失败。但 `api.github.com` 正常（0.53s）、
+`ssh.github.com:443` 的 SSH 握手也正常。DNS 没被污染（`20.205.243.166` 是真实 IP），
+同一个 /24 网段里 `.168`（api）和 `.160`（ssh）通、`.166`（网页）不通。
+
+结果就是：**命令行能调 API，浏览器却打不开设置页**，而添加 SSH 公钥偏偏只能走网页。
+
+**绕法**：`admin:public_key` 权限的 token 可以直接通过 API 登记公钥，
+完全不需要打开 github.com。
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+     -H "Accept: application/vnd.github+json" \
+     https://api.github.com/user/keys \
+     -d '{"title":"zhiliao-desktop","key":"ssh-ed25519 AAAA... user@host"}'
+```
+
+返回 `{"id":167391341,...}` 即成功，公钥**立即生效**，接着 `ssh -T git@github.com`
+就能拿到 `Hi <user>! You've successfully authenticated`。
+
+**前提条件**：token 必须显式带 `admin:public_key`。只有 `repo` 时这个端点返回 **404**
+（不是 403 —— 容易误判成「接口地址写错了」）。
+生成时可以直接用带参数的 URL 免勾选：
+`https://github.com/settings/tokens/new?scopes=repo,admin:public_key&description=zhiliao-key`
+
+**为什么不用 deploy key**：`POST /repos/{owner}/{repo}/keys` 同样需要写权限，
+而且 deploy key 只对单个仓库有效。账号级公钥一次配好，以后所有仓库都能推。
+
+**中文用户名的连带问题**：Windows 版 `ssh.exe` 读不懂 MSYS 路径。
+Git Bash 里 `HOME=/c/Users/詺`，ssh 会去建 `/c/Users/詺/.ssh` 并报
+`Could not create directory '/c/Users/\324\232/.ssh' (Permission denied)` ——
+即使手动 `mkdir -p ~/.ssh` 成功，ssh 也读不到里面的 key。
+解法是把密钥放 ASCII 目录（`C:/Users/Public/zhiliao_ssh/`），并用
+`git config core.sshCommand` 显式传 `-i` 与 `UserKnownHostsFile`，
+写进 `.git/config`（不进版本控制，clone 到别的机器不受影响）。
+
+**判断方法**：网络问题要分四组对照 —— 域名 × 端口 × 直连/代理 × 时间跨度。
+只看「GitHub 连不上」会得出错误结论：`api.github.com` 通不代表 `github.com` 通，
+443 不通不代表 22 不通。
