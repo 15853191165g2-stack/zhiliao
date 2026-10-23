@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 
@@ -56,6 +57,17 @@ async def lifespan(app: FastAPI):
     else:
         logger.info("ENABLE_SCHEDULER=false，定时任务未启动")
 
+    # ---- 启动补抓 ----
+    # 调度器是进程内的，程序关掉期间错过的时间点不会回补。
+    # 这里在后台对一下「上次抓取是什么时候」，陈旧就补一轮 ——
+    # 必须 create_task，不能 await：抓一轮要 4 分钟左右，等它跑完再启动
+    # 会让客户端以为后端挂了（健康检查一直不通）。
+    catchup_task = None
+    if settings.enable_scheduler and settings.refresh_catchup_on_start:
+        from app.workers.scheduler import catchup_if_stale
+
+        catchup_task = asyncio.create_task(catchup_if_stale())
+
     # ---- 推送基线 ----
     # 第一次启用推送时，把「库里已经躺着的历史通知」标记成无需推送，
     # 否则用户一开启推送就会被几百条旧通知刷屏。
@@ -79,6 +91,14 @@ async def lifespan(app: FastAPI):
                 ",".join(settings.push_channel_list()) if settings.push_enabled else "关闭")
 
     yield
+
+    # 正在补抓就先取消（进程要退出了，抓完也存不进去）
+    if catchup_task is not None and not catchup_task.done():
+        catchup_task.cancel()
+        try:
+            await catchup_task
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
 
     shutdown_scheduler()
 

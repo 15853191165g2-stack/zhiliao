@@ -60,3 +60,6 @@ _extract/
 _diag/
 *.bak
 *_before_*.db
+
+# ---------- 本地生成的参赛/交付文档 ----------
+output/

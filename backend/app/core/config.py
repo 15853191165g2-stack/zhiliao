@@ -61,6 +61,19 @@ class Settings(BaseSettings):
     refresh_cron_hours: str = "8,18"
     refresh_cron_minute: int = 0
     enable_scheduler: bool = True
+
+    # ---- 两条「静默失效」的兜底（2026-10-23 加）----
+    # 进程内调度器 + 单次抓取，有两条路会安静地让数据停更，且界面上看不出来：
+    #   ① 到点时本机 DNS / 网络抖一下 → 24 个来源全失败，一条都没进来
+    #      （2026-10-23 18:00 真实发生：全部 getaddrinfo failed）
+    #   ② 到点时程序没开 → APScheduler 是内存态，错过的时间点不会补跑
+    # 下面两组分别堵这两条。
+    refresh_retry_on_total_failure: bool = True
+    refresh_retry_delay_seconds: int = 90
+    refresh_catchup_on_start: bool = True
+    # 距上次成功抓取超过这么多小时，启动时就补一轮；<=0 表示不按时间判断
+    refresh_catchup_after_hours: float = 6.0
+
     # 抓完是否自动触发 AI 摘要
     auto_summarize: bool = True
     # 每次抓取最多送进 AI 的新条目数（防止一次性烧掉额度）
