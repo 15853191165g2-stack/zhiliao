@@ -9,7 +9,7 @@ import asyncio
 import logging
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Iterable
 
 from sqlalchemy import select
@@ -62,40 +62,51 @@ class IngestService:
         source_by_id = {s.id: s for s in sources}
 
         # ---- 1) 并发抓取（抓取并发，写库串行，避免 Session 打架）----
-        fetched: list[tuple[SourceSpec, list[RawItem] | None, str | None]] = []
+        # 每个来源的真实起止时间在这里记，不能放到下面入库那一步再说：
+        # FetchLog.started_at 原来是在**抓取全部结束之后**才赋值的，
+        # 于是 24 个来源的日志时间戳挤在同一毫秒里、duration_ms 恒为 0.0，
+        # 看上去像"假抓取"。2026-10-23 实测：真实跑了 238 秒，日志依然全是 0。
+        fetched: list[tuple[SourceSpec, list[RawItem] | None, str | None, datetime, float]] = []
         async with Fetcher(self.settings) as fetcher:
             ctx = FetchContext(fetcher=fetcher, settings=self.settings)
             sem = asyncio.Semaphore(max(1, self.settings.fetch_concurrency))
 
             async def one(spec: SourceSpec):
                 async with sem:
+                    started_dt = now_utc()
+                    t0 = time.perf_counter()
+
+                    def elapsed_ms() -> float:
+                        return (time.perf_counter() - t0) * 1000
+
                     try:
                         adapter = adapter_for(spec)
                         items = await adapter.fetch(spec, ctx)
-                        return spec, items, None
+                        return spec, items, None, started_dt, elapsed_ms()
                     except RobotsDenied as e:
-                        return spec, None, f"ROBOTS_DENIED: {e}"
+                        return spec, None, f"ROBOTS_DENIED: {e}", started_dt, elapsed_ms()
                     except (AdapterError, Exception) as e:  # noqa: BLE001
                         logger.warning("抓取失败 [%s]：%s", spec.name, e)
-                        return spec, None, f"{type(e).__name__}: {e}"
+                        return spec, None, f"{type(e).__name__}: {e}", started_dt, elapsed_ms()
 
             fetched = list(await asyncio.gather(*(one(s) for s in specs)))
             robots_blocked = fetcher.stats["blocked_by_robots"]
 
         # ---- 2) 串行入库 ----
-        for spec, items, error in fetched:
+        for spec, items, error, started_dt, elapsed_ms in fetched:
             row = source_by_id.get(spec.id) if spec.id else None
             log = FetchLog(
                 source_id=spec.id,
                 source_name=spec.name,
-                started_at=now_utc(),
+                started_at=started_dt,
+                duration_ms=elapsed_ms,
             )
             self.session.add(log)
 
             if error:
                 log.status = "blocked" if error.startswith("ROBOTS_DENIED") else "error"
                 log.error = error
-                log.finished_at = now_utc()
+                log.finished_at = started_dt + timedelta(milliseconds=elapsed_ms)
                 if row:
                     row.last_status = log.status
                     row.last_error = error
@@ -114,7 +125,7 @@ class IngestService:
             log.status = "ok"
             log.item_count = len(items)
             log.new_count = stats["new"]
-            log.finished_at = now_utc()
+            log.finished_at = started_dt + timedelta(milliseconds=elapsed_ms)
             if row:
                 row.last_status = "ok"
                 row.last_error = None
