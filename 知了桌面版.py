@@ -2119,6 +2119,10 @@ class QuanZhiApp:
         tk.Button(head, text="🔄  重新加载 yaml", bg=CARD, fg=SEED, bd=0,
                   font=(FONT, FS_SM), padx=12, pady=5, cursor="hand2",
                   command=self.reload_sources).pack(side="right")
+        tk.Button(head, text="＋  添加来源", bg=SEED, fg="#FFFFFF", bd=0,
+                  font=(FONT, FS_SM, "bold"), padx=14, pady=5, cursor="hand2",
+                  activebackground=SEED, activeforeground="#FFFFFF",
+                  command=self.add_source_dialog).pack(side="right", padx=(0, 8))
 
         cols = ("name", "school", "category", "status", "count", "last")
         style = ttk.Style()
@@ -2145,8 +2149,8 @@ class QuanZhiApp:
 
         tip = tk.Frame(p, bg=BG)
         tip.pack(fill="x", padx=16, pady=(0, 12))
-        tk.Label(tip, text="双击某一行 = 单独抓取这个来源。想新增学校，"
-                           "在 backend/sources/ 里加一个 yaml，再点「重新加载 yaml」即可。",
+        tk.Label(tip, text="双击某一行 = 单独抓取这个来源。「＋ 添加来源」粘贴栏目列表页网址即可新增，"
+                           "知了会先试抓一次再保存。",
                  bg=BG, fg=TEXT_FAINT, font=(FONT, FS_SM)).pack(anchor="w")
 
     def load_sources(self) -> None:
@@ -2162,7 +2166,8 @@ class QuanZhiApp:
             status = s.get("last_status") or "pending"
             status_icon = {"ok": "✅ 正常", "pending": "· 待抓", "error": "❌ 失败"}.get(
                 status, status)
-            self.src_tree.insert("", "end", values=(
+            # iid 存来源 id：双击单抓、删除都要用它。靠名字回查既慢又可能撞名。
+            self.src_tree.insert("", "end", iid=str(s.get("id")), values=(
                 s.get("name") or "",
                 s.get("school") or "",
                 s.get("category_hint") or "",
@@ -2187,6 +2192,7 @@ class QuanZhiApp:
         sel = self.src_tree.selection()
         if not sel:
             return
+        source_id = sel[0]
         name = self.src_tree.item(sel[0], "values")[0]
         if not messagebox.askyesno(
             "单独抓取", f"现在只抓「{name}」这一个来源？\n（会遵守 robots.txt，同域限速 2 秒）",
@@ -2195,23 +2201,317 @@ class QuanZhiApp:
             return
         self._set_status(self.online, f"正在抓取 {name}…")
         self.root.update_idletasks()
-        try:
-            data = http_json("/ingest/run", method="POST", payload=None, timeout=300)
-            r = data.get("data") or {}
-            self.load_sources()
-            self.load_feed(reset=True)
-            messagebox.showinfo(
-                "抓取完成",
-                f"共 {r.get('total_items', 0)} 条，新增 {r.get('new_items', 0)} 条，"
-                f"摘要 {r.get('summarized', 0)} 条。",
-                parent=self.root)
-            self._set_status(True, "抓取完成")
-        except Exception as e:  # noqa: BLE001
-            messagebox.showerror("抓取失败", str(e), parent=self.root)
-            self._set_status(self.online, f"抓取失败：{str(e)[:60]}")
 
-    # ================================================================== #
-    # AI 问答
+        def work():
+            # ⚠️ 这里必须走 /sources/{id}/fetch。原来调的是 /ingest/run，
+            #    那是**全量**抓取：双击一个源会把 24 个源全跑一遍（约 4 分钟），
+            #    界面上却写着"只抓这一个"。慢、耗模型额度，而且名不副实。
+            try:
+                data = http_json(f"/sources/{source_id}/fetch", method="POST",
+                                 payload=None, timeout=300)
+                r = data.get("data") or {}
+                err = None
+            except Exception as e:  # noqa: BLE001
+                r, err = {}, e
+
+            def done():
+                if err is not None:
+                    messagebox.showerror("抓取失败", str(err), parent=self.root)
+                    self._set_status(self.online, f"抓取失败：{str(err)[:60]}")
+                    return
+                self.load_sources()
+                self.load_feed(reset=True)
+                messagebox.showinfo(
+                    "抓取完成",
+                    f"「{name}」共 {r.get('total_items', 0)} 条，"
+                    f"新增 {r.get('new_items', 0)} 条，摘要 {r.get('summarized', 0)} 条。",
+                    parent=self.root)
+                self._set_status(True, "抓取完成")
+
+            self._post(done)
+
+        threading.Thread(target=work, daemon=True).start()
+
+    # ------------------------------------------------------------------ #
+    # 添加来源（粘贴网址 → 试抓 → 保存）
+    # ------------------------------------------------------------------ #
+    SRC_CATEGORIES = ("教务", "考试", "奖助", "就业", "活动", "后勤", "综合", "其他")
+
+    def add_source_dialog(self) -> None:
+        """粘贴一个栏目列表页网址，问后端「这个页面能不能抓、抓到什么」。
+
+        **为什么必须先探测再保存**：用户判断不了 CSS 选择器写得对不对，
+        但一眼就能看出"这几条标题是不是我要的通知"。所以让他确认标题，
+        而不是确认配置 —— 这也是唯一能避免"存进去、每天静默失败"的做法。
+        """
+        win = tk.Toplevel(self.root)
+        win.title("添加来源")
+        win.configure(bg=BG)
+        W, H = 780, 680
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        W, H = min(W, sw - 80), min(H, sh - 80)
+        win.geometry(f"{W}x{H}+{max(0, (sw - W) // 2)}+{max(0, (sh - H) // 2)}")
+        win.transient(self.root)
+        try:
+            win.grab_set()
+        except Exception:  # noqa: BLE001
+            pass
+
+        state: dict = {"result": None, "busy": False}
+
+        pad = tk.Frame(win, bg=BG)
+        pad.pack(fill="both", expand=True, padx=20, pady=16)
+        tk.Label(pad, text="添加来源", bg=BG, fg=TEXT,
+                 font=(FONT, FS_XL, "bold")).pack(anchor="w")
+        tk.Label(pad, text="粘贴学校某个栏目的通知列表页网址（不是首页，一般是「更多」点进去那页）。"
+                           "知了会先试抓一次，确认抓到的是真标题再保存。",
+                 bg=BG, fg=TEXT_FAINT, font=(FONT, FS_SM),
+                 wraplength=W - 60, justify="left").pack(anchor="w", pady=(4, 14))
+
+        # ---- 网址行 ----
+        row = tk.Frame(pad, bg=BG)
+        row.pack(fill="x")
+        tk.Label(row, text="网址", bg=BG, fg=TEXT_SUB,
+                 font=(FONT, FS_SM)).pack(side="left")
+        url_var = tk.StringVar()
+        ent = tk.Entry(row, textvariable=url_var, bg=CARD, fg=TEXT, relief="flat",
+                       font=(FONT, FS_MD), insertbackground=TEXT)
+        ent.pack(side="left", fill="x", expand=True, padx=(10, 10), ipady=6)
+        btn_probe = tk.Button(row, text="探测", bg=SEED, fg="#FFFFFF", bd=0,
+                              font=(FONT, FS_SM, "bold"), padx=16, pady=5,
+                              cursor="hand2", activebackground=SEED,
+                              activeforeground="#FFFFFF")
+        btn_probe.pack(side="left")
+
+        status = tk.Label(pad, text="", bg=BG, fg=TEXT_FAINT, font=(FONT, FS_SM),
+                          wraplength=W - 60, justify="left")
+        status.pack(anchor="w", pady=(10, 0))
+
+        # ---- 预览 ----
+        tk.Label(pad, text="抓到的是这些吗？", bg=BG, fg=TEXT_SUB,
+                 font=(FONT, FS_SM, "bold")).pack(anchor="w", pady=(12, 4))
+        prev_box = tk.Frame(pad, bg=CARD)
+        prev_box.pack(fill="both", expand=True)
+        prev = tk.Text(prev_box, bg=CARD, fg=TEXT, relief="flat", bd=0,
+                       font=(FONT, FS_SM), wrap="word", height=9,
+                       padx=12, pady=10, highlightthickness=0)
+        prev.pack(side="left", fill="both", expand=True)
+        sb = ttk.Scrollbar(prev_box, orient="vertical", command=prev.yview)
+        prev.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        prev.tag_configure("date", foreground=TEXT_FAINT)
+        prev.tag_configure("warn", foreground="#C2410C")
+        prev.tag_configure("ok", foreground="#15803D")
+        prev.configure(state="disabled")
+
+        def show_preview(lines: list[tuple[str, tuple[str, ...]]]) -> None:
+            prev.configure(state="normal")
+            prev.delete("1.0", "end")
+            for text, tags in lines:
+                prev.insert("end", text + "\n", tags)
+            prev.configure(state="disabled")
+
+        # ---- 表单 ----
+        form = tk.Frame(pad, bg=BG)
+        form.pack(fill="x", pady=(12, 0))
+        name_var = tk.StringVar()
+        school_var = tk.StringVar(value="大连理工大学")
+        cat_var = tk.StringVar(value="其他")
+
+        def field(row_i: int, label: str, var: tk.StringVar, width: int) -> tk.Entry:
+            tk.Label(form, text=label, bg=BG, fg=TEXT_SUB,
+                     font=(FONT, FS_SM)).grid(row=row_i, column=0, sticky="w", pady=4)
+            e = tk.Entry(form, textvariable=var, bg=CARD, fg=TEXT, relief="flat",
+                         font=(FONT, FS_MD), insertbackground=TEXT, width=width)
+            e.grid(row=row_i, column=1, sticky="we", padx=(10, 16), ipady=5)
+            return e
+
+        e_name = field(0, "来源名称", name_var, 34)
+        e_school = field(1, "学校", school_var, 16)
+        tk.Label(form, text="分类", bg=BG, fg=TEXT_SUB,
+                 font=(FONT, FS_SM)).grid(row=0, column=2, sticky="w")
+        cb_cat = ttk.Combobox(form, textvariable=cat_var, values=list(self.SRC_CATEGORIES),
+                              state="readonly", width=8, font=(FONT, FS_SM),
+                              style="QuanZhi.TCombobox")
+        cb_cat.grid(row=0, column=3, sticky="w", padx=(10, 0))
+        form.columnconfigure(1, weight=1)
+
+        auto_fetch = tk.BooleanVar(value=True)
+        tk.Checkbutton(form, text="保存后立即抓取一次", variable=auto_fetch, bg=BG,
+                       fg=TEXT_SUB, font=(FONT, FS_SM), activebackground=BG,
+                       selectcolor=CARD, bd=0, highlightthickness=0
+                       ).grid(row=1, column=2, columnspan=2, sticky="w", padx=(10, 0))
+
+        # ---- 底部按钮 ----
+        foot = tk.Frame(pad, bg=BG)
+        foot.pack(fill="x", pady=(14, 0))
+        btn_save = tk.Button(foot, text="保存", bg=SEED, fg="#FFFFFF", bd=0,
+                             font=(FONT, FS_SM, "bold"), padx=20, pady=6,
+                             cursor="hand2", activebackground=SEED,
+                             activeforeground="#FFFFFF", state="disabled")
+        btn_save.pack(side="right")
+        tk.Button(foot, text="取消", bg=CARD, fg=TEXT_SUB, bd=0, font=(FONT, FS_SM),
+                  padx=16, pady=6, cursor="hand2",
+                  command=win.destroy).pack(side="right", padx=(0, 8))
+
+        # ---- 探测 ----
+        def set_status(text: str, kind: str = "info") -> None:
+            status.configure(text=text,
+                             fg={"error": "#B91C1C", "ok": "#15803D"}.get(kind, TEXT_FAINT))
+
+        def do_probe() -> None:
+            if state["busy"]:
+                return
+            url = url_var.get().strip()
+            if not url:
+                set_status("先填一个网址。", "error")
+                return
+            if not url.lower().startswith(("http://", "https://")):
+                set_status("网址要以 http:// 或 https:// 开头。", "error")
+                return
+            state["busy"] = True
+            btn_probe.configure(state="disabled", text="探测中…")
+            btn_save.configure(state="disabled")
+            set_status("正在打开这个页面并试着抓取，最多十几秒…")
+            show_preview([("（探测中）", ("date",))])
+
+            def work() -> None:
+                try:
+                    data = http_json("/sources/probe", method="POST",
+                                     payload={"url": url}, timeout=90)
+                    res = data.get("data") or {}
+                    err = None
+                except Exception as e:  # noqa: BLE001
+                    res, err = {}, e
+
+                def done() -> None:
+                    state["busy"] = False
+                    if not win.winfo_exists():
+                        return
+                    btn_probe.configure(state="normal", text="探测")
+                    if err is not None:
+                        set_status(f"探测失败：{err}", "error")
+                        show_preview([("没能连上后端，或探测请求超时。", ("warn",))])
+                        return
+                    state["result"] = res if res.get("ok") else None
+                    lines: list[tuple[str, tuple[str, ...]]] = []
+                    if res.get("ok"):
+                        for it in res.get("items") or []:
+                            when = (it.get("date") or "")[:10]
+                            lines.append((f"· {it.get('title', '')}"
+                                          + (f"    {when}" if when else ""),
+                                          ("date",) if when else ()))
+                        set_status(res.get("message") or "", "ok")
+                        btn_save.configure(state="normal")
+                        if not name_var.get().strip():
+                            base = (res.get("page_title") or "").strip()
+                            name_var.set((base or url.split("//")[-1].split("/")[0])[:40])
+                        if res.get("adapter") == "article_url":
+                            cat_var.set("其他")
+                    else:
+                        lines.append((res.get("message") or "没认出这个页面。", ("warn",)))
+                        set_status("没有识别出可抓取的列表，先别保存。", "error")
+                    for w in res.get("warnings") or []:
+                        lines.append((f"⚠ {w}", ("warn",)))
+                    show_preview(lines)
+
+                self._post(done)
+
+            threading.Thread(target=work, daemon=True).start()
+
+        btn_probe.configure(command=do_probe)
+        ent.bind("<Return>", lambda e: do_probe())
+
+        # ---- 保存 ----
+        def do_save() -> None:
+            res = state["result"]
+            if not res:
+                return
+            name = name_var.get().strip()
+            if not name:
+                set_status("来源名称不能空。", "error")
+                return
+            payload = {
+                "name": name,
+                "school": school_var.get().strip(),
+                "adapter": res.get("adapter") or "html_list",
+                "url": url_var.get().strip(),
+                "category_hint": cat_var.get() or "其他",
+                "enabled": True,
+                "config": res.get("config") or {},
+            }
+            btn_save.configure(state="disabled", text="保存中…")
+
+            def work() -> None:
+                try:
+                    data = http_json("/sources", method="POST", payload=payload, timeout=60)
+                    created = data.get("data") or {}
+                    err = None
+                except Exception as e:  # noqa: BLE001
+                    created, err = {}, e
+
+                def done() -> None:
+                    if not win.winfo_exists():
+                        return
+                    if err is not None:
+                        btn_save.configure(state="normal", text="保存")
+                        set_status(f"保存失败：{err}", "error")
+                        return
+                    self.load_sources()
+                    win.destroy()
+                    self._set_status(True, f"已添加来源「{payload['name']}」")
+                    if auto_fetch.get() and created.get("id"):
+                        self._fetch_new_source(int(created["id"]), payload["name"])
+                    else:
+                        messagebox.showinfo(
+                            "已添加",
+                            f"「{payload['name']}」已保存。双击列表里这一行可以单独抓取。",
+                            parent=self.root)
+
+                self._post(done)
+
+            threading.Thread(target=work, daemon=True).start()
+
+        btn_save.configure(command=do_save)
+        ent.focus_set()
+
+    def _fetch_new_source(self, source_id: int, name: str) -> None:
+        """刚添加的来源先抓一次：抓不到就当场告诉用户，别等到明天才发现是空的。"""
+        self._set_status(self.online, f"正在抓取「{name}」…")
+
+        def work() -> None:
+            try:
+                data = http_json(f"/sources/{source_id}/fetch", method="POST",
+                                 payload=None, timeout=300)
+                r = data.get("data") or {}
+                err = None
+            except Exception as e:  # noqa: BLE001
+                r, err = {}, e
+
+            def done() -> None:
+                self.load_sources()
+                if err is not None:
+                    messagebox.showwarning(
+                        "已保存，但抓取失败",
+                        f"「{name}」已经加进来源列表了，但第一次抓取没成功：\n{err}\n\n"
+                        "可以在来源管理里双击它重试；如果一直失败，多半是这个网址"
+                        "不是一个栏目列表页（或者站点需要登录）。",
+                        parent=self.root)
+                    self._set_status(self.online, "抓取失败，来源已保存")
+                    return
+                self.load_feed(reset=True)
+                got = r.get("new_items", 0)
+                messagebox.showinfo(
+                    "添加完成",
+                    f"「{name}」抓到 {r.get('total_items', 0)} 条，新增 {got} 条。"
+                    + ("" if got else "\n\n抓取成功但暂时没有新通知，之后每天会自动更新。"),
+                    parent=self.root)
+                self._set_status(True, f"已添加「{name}」")
+
+            self._post(done)
+
+        threading.Thread(target=work, daemon=True).start()
+
     # ================================================================== #
     def _build_chat_page(self) -> None:
         p = self.pages["chat"]

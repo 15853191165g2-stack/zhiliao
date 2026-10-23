@@ -13,7 +13,7 @@ from app.api.serializers import to_source_out
 from app.core.config import get_settings
 from app.db import get_session
 from app.models import Source
-from app.schemas import ApiResponse, SourceCreate, SourceOut, SourceUpdate
+from app.schemas import ApiResponse, SourceCreate, SourceOut, SourceProbeIn, SourceUpdate
 from app.services.ingest import IngestService
 from app.services.source_config import dump_source_to_yaml, sync_yaml_to_db
 
@@ -45,6 +45,25 @@ async def list_adapters():
             }
         )
     return ApiResponse.ok(out)
+
+
+@router.post("/probe", response_model=ApiResponse[dict])
+async def probe_source(
+    payload: SourceProbeIn,
+):
+    """探测一个网址能不能抓、该用什么适配器、选择器怎么写。
+
+    App 的「添加来源」先调它：用户只填网址，看到真实标题预览后再保存。
+    出网走 Fetcher（robots + 限速 + 重试），与正式抓取同一条链路。
+    """
+    from app.adapters.base import FetchContext
+    from app.services.fetch import Fetcher
+    from app.services.probe import probe_url
+
+    settings = get_settings()
+    async with Fetcher(settings) as fetcher:
+        result = await probe_url(payload.url, FetchContext(fetcher=fetcher, settings=settings))
+    return ApiResponse.ok(result)
 
 
 @router.post("", response_model=ApiResponse[SourceOut])

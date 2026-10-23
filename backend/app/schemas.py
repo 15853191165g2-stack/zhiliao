@@ -150,6 +150,12 @@ class SourceCreate(SourceBase):
     pass
 
 
+class SourceProbeIn(BaseModel):
+    """探测一个网址：只填网址，其余交给后端猜。"""
+
+    url: str
+
+
 class SourceUpdate(BaseModel):
     name: str | None = None
     school: str | None = None
