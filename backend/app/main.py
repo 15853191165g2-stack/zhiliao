@@ -49,6 +49,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:  # noqa: BLE001
         logger.warning("同步 yaml 来源失败（不影响启动）：%s", e)
 
+    # ---- 生效模型配置 ----
+    # 库里激活了自定义模型就用它，否则回落 .env。必须在这里加载一次：
+    # llm_config 是进程级缓存，不预热的话第一次 get_active 会直接回落 .env，
+    # 表现为「明明在界面上启用了自定义模型，重启后又跑回 GLM 了」。
+    from app.services.llm_config import reload_active
+
+    active_llm = await reload_active(settings)
+    logger.info("生效模型：%s（来源 %s，地址 %s）",
+                active_llm.label, active_llm.source, active_llm.endpoint or "未配置")
+
     # 定时任务
     from app.workers.scheduler import shutdown_scheduler, start_scheduler
 
@@ -87,7 +97,7 @@ async def lifespan(app: FastAPI):
 
     logger.info("知了后端已就绪 · %s · 刷新计划 %s · AI=%s · 推送=%s",
                 settings.env, settings.refresh_cron(),
-                "开启" if settings.ai_enabled else "本地兜底",
+                "开启" if active_llm.enabled else "本地兜底",
                 ",".join(settings.push_channel_list()) if settings.push_enabled else "关闭")
 
     yield

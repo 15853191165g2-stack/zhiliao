@@ -426,3 +426,131 @@ class PushPendingResult {
     );
   }
 }
+
+// --------------------------------------------------------------------------- //
+// 自定义大模型（AI 问答页的模型选择器）
+// --------------------------------------------------------------------------- //
+
+/// 一份自定义模型接入配置。
+///
+/// 注意 [apiKeyMasked]：后端**永远不回明文 key**。编辑时把这个打码串原样传回去，
+/// 后端据此判断「用户没动 key」，保留库里的原值。
+class LLMProfile {
+  LLMProfile({
+    required this.id,
+    required this.name,
+    this.baseUrl = '',
+    this.model = '',
+    this.apiKeyMasked = '',
+    this.hasKey = false,
+    this.thinking = false,
+    this.jsonMode = true,
+    this.isActive = false,
+    this.endpoint = '',
+    this.lastTestOk,
+    this.lastTestError = '',
+  });
+
+  final int id;
+  final String name;
+  final String baseUrl;
+  final String model;
+  final String apiKeyMasked;
+  final bool hasKey;
+  final bool thinking;
+  final bool jsonMode;
+  final bool isActive;
+
+  /// 后端拼好的最终请求地址，用来告诉用户「你填的域名最后打到哪」。
+  final String endpoint;
+  final bool? lastTestOk;
+  final String lastTestError;
+
+  factory LLMProfile.fromJson(Map<String, dynamic> j) => LLMProfile(
+        id: _asInt(j['id']) ?? 0,
+        name: _asString(j['name']) ?? '',
+        baseUrl: _asString(j['base_url']) ?? '',
+        model: _asString(j['model']) ?? '',
+        apiKeyMasked: _asString(j['api_key_masked']) ?? '',
+        hasKey: j['has_key'] == true,
+        thinking: j['thinking'] == true,
+        jsonMode: j['json_mode'] != false,
+        isActive: j['is_active'] == true,
+        endpoint: _asString(j['endpoint']) ?? '',
+        lastTestOk: j['last_test_ok'] is bool ? j['last_test_ok'] as bool : null,
+        lastTestError: _asString(j['last_test_error']) ?? '',
+      );
+}
+
+/// 模型列表 + 当前生效的是谁。
+class LLMList {
+  LLMList({
+    this.items = const [],
+    this.envName = '默认',
+    this.envModel = '',
+    this.envEnabled = false,
+    this.activeId,
+    this.effective = '',
+    this.effectiveModel = '',
+    this.effectiveSource = 'env',
+  });
+
+  final List<LLMProfile> items;
+  final String envName;
+  final String envModel;
+  final bool envEnabled;
+  final int? activeId;
+  final String effective;
+  final String effectiveModel;
+  final String effectiveSource;
+
+  /// 没有自定义配置在激活态 = 走 .env 里那份。
+  bool get usingEnv => activeId == null;
+
+  factory LLMList.fromJson(Map<String, dynamic> j) {
+    final env = j['env'] is Map
+        ? Map<String, dynamic>.from(j['env'] as Map)
+        : <String, dynamic>{};
+    final raw = j['items'];
+    return LLMList(
+      items: (raw is List)
+          ? raw
+              .whereType<Map>()
+              .map((e) => LLMProfile.fromJson(Map<String, dynamic>.from(e)))
+              .toList()
+          : const [],
+      envName: _asString(env['name']) ?? '默认',
+      envModel: _asString(env['model']) ?? '',
+      envEnabled: env['enabled'] == true,
+      activeId: _asInt(j['active_id']),
+      effective: _asString(j['effective']) ?? '',
+      effectiveModel: _asString(j['effective_model']) ?? '',
+      effectiveSource: _asString(j['effective_source']) ?? 'env',
+    );
+  }
+}
+
+/// 「测试连接」的结果。
+class LLMTestResult {
+  LLMTestResult({
+    this.ok = false,
+    this.detail = '',
+    this.endpoint = '',
+    this.model = '',
+    this.durationMs = 0,
+  });
+
+  final bool ok;
+  final String detail;
+  final String endpoint;
+  final String model;
+  final double durationMs;
+
+  factory LLMTestResult.fromJson(Map<String, dynamic> j) => LLMTestResult(
+        ok: j['ok'] == true,
+        detail: _asString(j['detail']) ?? '',
+        endpoint: _asString(j['endpoint']) ?? '',
+        model: _asString(j['model']) ?? '',
+        durationMs: (j['duration_ms'] as num?)?.toDouble() ?? 0,
+      );
+}

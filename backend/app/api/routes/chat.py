@@ -39,8 +39,12 @@ async def chat(
     citations = [to_out(n) for n in hits]
 
     generated_by = "local"
+    model_name = ""
+    model_source = "local"
     answer = _local_answer(payload.question, hits)
 
+    # AIClient 不传 llm 时自动取「当前生效配置」：库里激活了自定义模型就是它，
+    # 否则回落 .env。所以用户刚在界面上切完模型，下一次提问立刻生效。
     ai = AIClient(settings)
     if ai.enabled:
         try:
@@ -52,6 +56,8 @@ async def chat(
             if text.strip():
                 answer = text.strip()
                 generated_by = ai.model
+                model_name = ai.llm.name
+                model_source = ai.llm.source
         except Exception as e:  # noqa: BLE001
             logger.warning("问答 AI 调用失败，返回本地结果：%s", e)
             answer = _local_answer(payload.question, hits) + f"\n\n（AI 暂时不可用：{str(e)[:120]}）"
@@ -59,10 +65,16 @@ async def chat(
         # 没配 Key 才说"未配置"。
         # 以前这句是硬编码在 _local_answer 里的，于是限流降级时会同时出现
         # 「当前未接入大模型」和「AI 暂时不可用：HTTP 429」两句互相打脸的话。
-        answer += "\n\n（未配置 AI_API_KEY，以上是原始条目，未经模型提炼）"
+        answer += "\n\n（未配置 API Key，以上是原始条目，未经模型提炼）"
 
     return ApiResponse.ok(
-        ChatResponse(answer=answer, citations=citations, generated_by=generated_by)
+        ChatResponse(
+            answer=answer,
+            citations=citations,
+            generated_by=generated_by,
+            model_name=model_name,
+            model_source=model_source,
+        )
     )
 
 

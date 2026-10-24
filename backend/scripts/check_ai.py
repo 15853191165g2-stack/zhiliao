@@ -16,25 +16,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.core.config import get_settings  # noqa: E402
 from app.services.ai_client import AIClient  # noqa: E402
+from app.services.llm_config import reload_active  # noqa: E402
 
 
 async def main() -> None:
     s = get_settings()
+    # 先从库里读「当前激活的自定义模型」。不读的话这里打印的是 .env，
+    # 而 AIClient 实际走的是 profile —— 会出现「脚本说 glm，实际跑 deepseek」这种假报告。
+    cfg = await reload_active(s)
     print("=" * 66)
     print("知了 · AI 连通性自检")
     print("=" * 66)
-    print(f"BASE_URL : {s.ai_base_url}")
-    print(f"MODEL    : {s.ai_model}")
-    print(f"API_KEY  : {'已配置（' + s.ai_api_key[:6] + '…）' if s.ai_enabled else '未配置'}")
+    print(f"BASE_URL : {cfg.endpoint}")
+    print(f"MODEL    : {cfg.model}")
+    print(f"来源     : {'自定义「' + cfg.name + '」' if cfg.source == 'profile' else '.env 默认'}")
+    print(f"API_KEY  : {'已配置（' + cfg.api_key[:6] + '…）' if cfg.enabled else '未配置'}")
     print("-" * 66)
 
-    if not s.ai_enabled:
-        print("未配置 AI_API_KEY。")
+    if not cfg.enabled:
+        print("未配置 API Key。")
         print("后端仍可正常运行，摘要会自动降级为本地规则提取（LocalSummarizer）。")
         print("要接入大模型：在 backend/.env 里填 AI_API_KEY=你的Key")
         return
 
-    client = AIClient(s)
+    client = AIClient(s, cfg)
     started = time.perf_counter()
     try:
         reply = await client.chat("你是一个测试助手，只回复 OK。", "回复 OK")

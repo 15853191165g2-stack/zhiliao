@@ -2079,3 +2079,42 @@ Git Bash 里 `HOME=/c/Users/詺`，ssh 会去建 `/c/Users/詺/.ssh` 并报
 **离线校验**：`tests/test_probe.py`（33 项）对 10 个真实页面存档跑通探测，
 其中有 5 项把生成的配置交给**真正的 `HtmlListAdapter`**（`transport=file`）跑一遍，
 断言必须出条目 —— 专门防上面第 2、3 条。
+
+---
+
+## #62 接自定义大模型：三个坑都是「界面上看不出来」的
+
+**坑 1：本机地址被系统代理拦成 502。**
+Windows 上常配着系统代理（学校网尤其常见）。`httpx` 默认 `trust_env=True`，
+会把 `http://127.0.0.1:11434`（本地 Ollama）也交给代理，代理连不上，返回
+`502 upstream connect failed`。用户看到的是「我的 Ollama 明明在跑，知了说连不上」，
+根本想不到是代理。
+修法：`ai_client.is_local_host()` 判 host（localhost / 127.0.0.1 / 10. / 192.168. /
+172.16-31 / .local），命中则 `trust_env=False` 直连。
+**这个坑只有在「测一个本机地址」时才暴露** —— 拿 deepseek 那种公网地址测永远发现不了。
+
+**坑 2：`thinking` 和 `response_format` 不是所有服务商都认。**
+智谱认 `thinking`，别家见到直接 400；`response_format` 多数认，少数网关不认。
+不能一律发、也不能一律不发（关了 thinking 会让 GLM 把额度耗在思维链上，docs/02 #52）。
+做法分两层：智谱系（按域名判）才发 `thinking`；真被 400 了再看报错**有没有点名**
+那个字段，点名了才摘掉重试一次。
+**不能见 400 就摘** —— 否则「模型名拼错」这种错误会被摘掉两个参数后变成另一个
+更难懂的 400。`_drop_unsupported()` 只在报错提到该字段、或明说
+unsupported / unknown / extra 时才动手（4 个单测锁住这个边界）。
+
+**坑 3：打码值被当成新 key 存回去。**
+接口只回 `sk-a****mnop`。前端编辑别的字段（改个名字）时把这个打码串原样提交，
+如果后端直接 `row.api_key = payload.api_key`，key 就变成了 `sk-****mnop` 这个字符串本身，
+下一次提问立刻 401 —— 而且用户改的明明是名字，会觉得「这软件自己把 key 弄坏了」。
+规则：**含 `****` 或为空 = 没改，保留原值**。空字符串也保留（防止手滑清空输入框）。
+
+另外两条是设计决定，不是坑：
+- **配置存库不存 .env**：改 .env 要重启进程，等于「界面上换模型」这个功能不存在。
+- **进程级缓存只存自定义 profile，env 那份每次现算**：`settings` 是 lru_cache 单例，
+  测试里会 monkeypatch 它的 key；如果连 env 配置也缓存成 dataclass 副本，
+  改过的 settings 就再也影响不到 `AIClient`（表现为「设了 key 还说未配置」）。
+  这条是跑全量测试时才发现的（2 个用例变红）。
+
+**验收**：`tests/test_llm_profiles.py`（33 项）+ `scripts/probe_llm_model.py`
+（真窗口走一遍：按钮 → 弹窗 → 填错地址测连 → 保存启用 → 删除回落）。
+测连失败时**必须回显最终请求地址**，否则用户没法自查是哪一项填错了。

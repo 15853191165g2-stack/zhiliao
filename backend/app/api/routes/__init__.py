@@ -10,6 +10,7 @@ from app.api.routes import (
     health,
     imports,
     ingest,
+    llm,
     notifications,
     push,
     sources,
@@ -23,6 +24,7 @@ api_router.include_router(ingest.router)
 api_router.include_router(imports.router)
 api_router.include_router(brief.router)
 api_router.include_router(chat.router)
+api_router.include_router(llm.router)
 api_router.include_router(push.router)
 
 __all__ = ["api_router"]

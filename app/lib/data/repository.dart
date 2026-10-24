@@ -168,6 +168,62 @@ class Repository {
     return ChatAnswer.fromJson(Map<String, dynamic>.from(data as Map));
   }
 
+  // ---- 自定义大模型 ----
+  /// 列出「内置默认 + 所有自定义配置」，以及当前生效的是谁。
+  Future<LLMList> llmProfiles() async {
+    final data = await _api.get('/api/llm/profiles');
+    return LLMList.fromJson(Map<String, dynamic>.from(data as Map));
+  }
+
+  Future<void> createLLMProfile({
+    required String name,
+    required String baseUrl,
+    required String model,
+    required String apiKey,
+    bool thinking = false,
+    bool jsonMode = true,
+    bool activate = true,
+  }) async {
+    await _api.post('/api/llm/profiles', query: {'activate': activate}, body: {
+      'name': name,
+      'base_url': baseUrl,
+      'model': model,
+      'api_key': apiKey,
+      'thinking': thinking,
+      'json_mode': jsonMode,
+    });
+  }
+
+  Future<void> activateLLMProfile(int id) => _api.post('/api/llm/profiles/$id/activate');
+
+  /// 切回 .env 里那份默认配置。
+  Future<void> deactivateLLM() => _api.post('/api/llm/profiles/deactivate');
+
+  Future<void> deleteLLMProfile(int id) => _api.delete('/api/llm/profiles/$id');
+
+  /// 测一次连通性。**不保存也能测** —— 先试通再存，列表里不会堆一堆错的。
+  ///
+  /// 编辑已有配置时传 [profileId] 且 [apiKey] 留空：后端会用库里的原 key，
+  /// 这样「只改地址、没动 key」也能测。
+  Future<LLMTestResult> testLLM({
+    String baseUrl = '',
+    String apiKey = '',
+    String model = '',
+    bool? thinking,
+    bool? jsonMode,
+    int? profileId,
+  }) async {
+    final data = await _api.post('/api/llm/test', body: {
+      'base_url': baseUrl,
+      'api_key': apiKey,
+      'model': model,
+      if (thinking != null) 'thinking': thinking,
+      if (jsonMode != null) 'json_mode': jsonMode,
+      if (profileId != null) 'profile_id': profileId,
+    });
+    return LLMTestResult.fromJson(Map<String, dynamic>.from(data as Map));
+  }
+
   // ---- 推送 ----
   /// 拉取「比游标新」的通知。
   ///

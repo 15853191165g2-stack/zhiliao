@@ -221,6 +221,36 @@ def http_json(path: str, method: str = "GET", payload: dict | None = None, timeo
     return json.loads(raw) if raw else {}
 
 
+def _http_detail(e: Exception) -> str:
+    """从 urllib 的 HTTPError 里挖出后端真正想说的话。
+
+    直接 str(e) 只有一个「HTTP Error 400: Bad Request」——用户看不出到底哪一项
+    填错了，而这恰恰是自定义模型最容易出错的地方（名字重了？模型名拼错？）。
+    后端的错误体是 FastAPI 默认的 `{"detail": "..."}`，pydantic 校验失败时
+    detail 还是个列表，这里一并摊平。
+    """
+    reader = getattr(e, "read", None)
+    if callable(reader):
+        try:
+            raw = e.read().decode("utf-8", "replace")  # type: ignore[attr-defined]
+            try:
+                obj = json.loads(raw)
+            except Exception:  # noqa: BLE001
+                return raw[:200]
+            if isinstance(obj, dict):
+                msg = obj.get("detail") or obj.get("message")
+                if isinstance(msg, list):
+                    msg = "；".join(
+                        str(m.get("msg") if isinstance(m, dict) else m) for m in msg
+                    )
+                if msg:
+                    return str(msg)[:200]
+            return raw[:200]
+        except Exception:  # noqa: BLE001
+            pass
+    return str(e)[:200]
+
+
 # --------------------------------------------------------------------------- #
 # 后端进程管理
 # --------------------------------------------------------------------------- #
@@ -2522,6 +2552,15 @@ class QuanZhiApp:
         self.chat_by = tk.Label(head, text="", bg=BG, fg=TEXT_FAINT, font=(FONT, FS_SM))
         self.chat_by.pack(side="left", padx=(10, 0), pady=(4, 0))
 
+        # 当前模型 + 切换入口。放在标题行右侧，是因为「我用的是哪个模型」
+        # 这个问题在接了自定义模型之后每次都要回答一遍（见 _chat_render 的注释）。
+        self.chat_model_btn = tk.Button(
+            head, text="模型：读取中… ▾", bg=CARD, fg=TEXT_SUB, bd=0, relief="flat",
+            font=(FONT, FS_SM), padx=12, pady=4, cursor="hand2",
+            activebackground=CARD, activeforeground=SEED,
+            command=self.llm_dialog)
+        self.chat_model_btn.pack(side="right", pady=(2, 0))
+
         ex = tk.Frame(p, bg=BG)
         ex.pack(fill="x", padx=16, pady=(0, 6))
         tk.Label(ex, text="试试：", bg=BG, fg=TEXT_FAINT,
@@ -2564,6 +2603,385 @@ class QuanZhiApp:
             "我会只依据「已经抓到的通知原文」回答，找不到就说找不到，不编。"
             "回答下面会列出引用到的通知。\n", "cite")
 
+        # 建完界面后异步问一次「现在用的是哪个模型」，把按钮上的「读取中…」换掉。
+        # 之所以不能在这里同步请求：这时后端可能刚起来还没就绪，同步会卡住界面。
+        self.root.after(600, self._llm_load_button)
+
+    def _llm_load_button(self) -> None:
+        """只更新按钮文字，失败就保持原样（不弹错误框，别打断用户）。"""
+        def work() -> None:
+            try:
+                data = (http_json("/llm/profiles", timeout=8) or {}).get("data") or {}
+                model = data.get("effective_model") or ""
+                self._post(lambda: self._llm_refresh_button(model=model))
+            except Exception:  # noqa: BLE001
+                pass
+
+        threading.Thread(target=work, daemon=True).start()
+
+    # ------------------------------------------------------------------ #
+    # 模型选择（AI 问答页右上角）
+    # ------------------------------------------------------------------ #
+    def _llm_refresh_button(self, label: str = "", model: str = "") -> None:
+        """把「模型：xxx ▾」更新成当前生效的那个。
+
+        为什么不显示配置名只显示模型名：按钮就那么宽，而用户真正关心的是
+        「现在跑的是哪个模型」，配置名（我给它起的别名）反而是次要信息。
+        """
+        text = model or (label or "").split(" · ")[-1].strip()
+        try:
+            self.chat_model_btn.configure(text=f"模型：{text or '未配置'} ▾")
+        except Exception:  # noqa: BLE001
+            pass
+
+    def llm_dialog(self) -> None:
+        """AI 模型设置：在内置默认和自定义模型之间切换。
+
+        一条核心约束：**先测试再保存**。地址填错、模型名拼错时，服务端不会说
+        「你地址不对」，只会还一个 401 / 404 / 超时，用户根本分不清是哪一项错。
+        所以「测试连接」会把**最终实际请求的地址**回显出来 —— 拼没拼对一眼可见。
+        """
+        win = tk.Toplevel(self.root)
+        win.title("AI 模型")
+        win.configure(bg=BG)
+        W, H = 780, 720
+        sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+        W, H = min(W, sw - 80), min(H, sh - 100)
+        win.geometry(f"{W}x{H}+{max(0, (sw - W) // 2)}+{max(0, (sh - H) // 2)}")
+        win.transient(self.root)
+        try:
+            win.grab_set()
+        except Exception:  # noqa: BLE001
+            pass
+
+        def alive() -> bool:
+            try:
+                return bool(win.winfo_exists())
+            except Exception:  # noqa: BLE001
+                return False
+
+        def later(fn) -> None:
+            """把回调扔回主线程，并且窗口没了就静默丢掉。"""
+            def run() -> None:
+                if alive():
+                    try:
+                        fn()
+                    except tk.TclError:
+                        pass
+            self._post(run)
+
+        pad = tk.Frame(win, bg=BG)
+        pad.pack(fill="both", expand=True, padx=20, pady=16)
+
+        top = tk.Frame(pad, bg=BG)
+        top.pack(fill="x")
+        tk.Label(top, text="AI 模型", bg=BG, fg=TEXT,
+                 font=(FONT, FS_XL, "bold")).pack(side="left")
+        cur = tk.Label(top, text="", bg=BG, fg=TEXT_FAINT, font=(FONT, FS_SM))
+        cur.pack(side="left", padx=(10, 0), pady=(4, 0))
+
+        tk.Label(
+            pad,
+            text="默认用智谱 GLM-4.7-Flash。也可以接任何 OpenAI 兼容协议的服务"
+                 "（DeepSeek、Kimi、通义、本地 Ollama…）。Key 只存在这台电脑的库里，"
+                 "不会上传到任何地方。",
+            bg=BG, fg=TEXT_FAINT, font=(FONT, FS_SM),
+            wraplength=W - 70, justify="left").pack(anchor="w", pady=(4, 10))
+
+        # ---- 已有配置列表 ----
+        list_box = tk.Frame(pad, bg=CARD, highlightthickness=1, highlightbackground=BORDER)
+        list_box.pack(fill="x")
+        rows = tk.Frame(list_box, bg=CARD)
+        rows.pack(fill="x", padx=12, pady=8)
+
+        status = tk.Label(pad, text="", bg=BG, fg=TEXT_FAINT, font=(FONT, FS_SM),
+                          wraplength=W - 70, justify="left")
+        status.pack(anchor="w", pady=(8, 0))
+
+        def set_status(text: str, ok: bool | None = None) -> None:
+            color = TEXT_FAINT if ok is None else ("#15803D" if ok else "#B91C1C")
+            status.configure(text=text, fg=color)
+
+        # ---- 表单 ----
+        tk.Label(pad, text="添加自定义模型", bg=BG, fg=TEXT_SUB,
+                 font=(FONT, FS_SM, "bold")).pack(anchor="w", pady=(14, 6))
+        form = tk.Frame(pad, bg=BG)
+        form.pack(fill="x")
+        form.columnconfigure(1, weight=1)
+        form.columnconfigure(3, weight=1)
+
+        name_var = tk.StringVar()
+        model_var = tk.StringVar()
+        url_var = tk.StringVar()
+        key_var = tk.StringVar()
+        think_var = tk.BooleanVar(value=False)
+        json_var = tk.BooleanVar(value=True)
+
+        def mk_entry(r: int, c: int, var: tk.StringVar, width: int = 18,
+                     show: str = "") -> tk.Entry:
+            e = tk.Entry(form, textvariable=var, bg=CARD, fg=TEXT, relief="flat",
+                         font=(FONT, FS_MD), insertbackground=TEXT, width=width,
+                         show=show, highlightthickness=1, highlightbackground=BORDER)
+            e.grid(row=r, column=c, sticky="we", padx=(8, 14), pady=4, ipady=5)
+            return e
+
+        tk.Label(form, text="配置名", bg=BG, fg=TEXT_SUB,
+                 font=(FONT, FS_SM)).grid(row=0, column=0, sticky="w", pady=4)
+        e_name = mk_entry(0, 1, name_var)
+        tk.Label(form, text="模型名", bg=BG, fg=TEXT_SUB,
+                 font=(FONT, FS_SM)).grid(row=0, column=2, sticky="w", pady=4, padx=(10, 0))
+        e_model = mk_entry(0, 3, model_var)
+
+        tk.Label(form, text="接入地址", bg=BG, fg=TEXT_SUB,
+                 font=(FONT, FS_SM)).grid(row=1, column=0, sticky="w", pady=4)
+        e_url = mk_entry(1, 1, url_var)
+        e_url.grid_configure(columnspan=3, sticky="we")
+        tk.Label(form, text="只填域名也行，会自动补 /v1/chat/completions；"
+                            "测一次就能看到最终请求地址",
+                 bg=BG, fg=TEXT_FAINT, font=(FONT, FS_XS)).grid(
+            row=2, column=1, columnspan=3, sticky="w", padx=(8, 0))
+
+        tk.Label(form, text="API Key", bg=BG, fg=TEXT_SUB,
+                 font=(FONT, FS_SM)).grid(row=3, column=0, sticky="w", pady=4)
+        mk_entry(3, 1, key_var, show="•").grid_configure(columnspan=3, sticky="we")
+
+        opts = tk.Frame(form, bg=BG)
+        opts.grid(row=4, column=0, columnspan=4, sticky="w", pady=(6, 0))
+        tk.Checkbutton(
+            opts, text="关闭思维链（只有智谱系认这个开关）", variable=think_var,
+            bg=BG, fg=TEXT_SUB, activebackground=BG, selectcolor=CARD,
+            font=(FONT, FS_XS), bd=0, highlightthickness=0).pack(side="left")
+        tk.Checkbutton(
+            opts, text="要求返回 JSON（个别模型不支持，失败会自动去掉）", variable=json_var,
+            bg=BG, fg=TEXT_SUB, activebackground=BG, selectcolor=CARD,
+            font=(FONT, FS_XS), bd=0, highlightthickness=0).pack(side="left", padx=(16, 0))
+
+        btns = tk.Frame(form, bg=BG)
+        btns.grid(row=5, column=0, columnspan=4, sticky="w", pady=(10, 0))
+        btn_test = tk.Button(btns, text="测试连接", bg=CARD, fg=TEXT, bd=0, relief="flat",
+                             font=(FONT, FS_SM), padx=16, pady=5, cursor="hand2",
+                             highlightthickness=1, highlightbackground=BORDER,
+                             activebackground=CARD, activeforeground=SEED)
+        btn_test.pack(side="left")
+        btn_save = tk.Button(btns, text="保存并启用", bg=SEED, fg="#FFFFFF", bd=0, relief="flat",
+                             font=(FONT, FS_SM, "bold"), padx=18, pady=5, cursor="hand2",
+                             activebackground="#2559D8", activeforeground="#FFFFFF")
+        btn_save.pack(side="left", padx=(10, 0))
+        tk.Button(btns, text="关闭", bg=BG, fg=TEXT_FAINT, bd=0, relief="flat",
+                  font=(FONT, FS_SM), padx=12, pady=5, cursor="hand2",
+                  activebackground=BG, command=win.destroy).pack(side="right")
+
+        # ---- 数据刷新 ----
+        def render(data: dict) -> None:
+            for w in rows.winfo_children():
+                w.destroy()
+            env = data.get("env") or {}
+            active_id = data.get("active_id")
+            cur.configure(text="正在使用：" + (data.get("effective") or "未配置"))
+            self._llm_refresh_button(model=data.get("effective_model") or "")
+
+            def add_row(title: str, sub: str, is_active: bool, pid: int | None,
+                        has_key: bool, test_ok: bool | None, test_err: str) -> None:
+                r = tk.Frame(rows, bg=CARD)
+                r.pack(fill="x", pady=3)
+                tk.Label(r, text="●" if is_active else "○", bg=CARD,
+                         fg=SEED if is_active else BORDER,
+                         font=(FONT, FS_MD, "bold")).pack(side="left")
+                tk.Label(r, text=title, bg=CARD,
+                         fg=TEXT if is_active else TEXT_SUB,
+                         font=(FONT, FS_MD, "bold" if is_active else "normal")).pack(
+                    side="left", padx=(8, 0))
+                tk.Label(r, text=sub, bg=CARD, fg=TEXT_FAINT,
+                         font=(FONT, FS_XS)).pack(side="left", padx=(8, 0))
+
+                badge = ""
+                bcolor = TEXT_FAINT
+                if is_active:
+                    badge = "在用"
+                    bcolor = SEED
+                elif test_ok is True:
+                    badge = "测试通过"
+                    bcolor = "#15803D"
+                elif test_ok is False:
+                    badge = "测试失败"
+                    bcolor = "#B91C1C"
+                if badge:
+                    tk.Label(r, text=badge, bg=CARD, fg=bcolor,
+                             font=(FONT, FS_XS)).pack(side="left", padx=(10, 0))
+
+                # 右侧按钮从右往左排：删除 → 测试 → 启用
+                if pid is not None:
+                    tk.Button(r, text="删除", bg=CARD, fg="#B91C1C", bd=0, relief="flat",
+                              font=(FONT, FS_XS), padx=6, cursor="hand2",
+                              activebackground=CARD,
+                              command=lambda p=pid, t=title: ask_delete(p, t)).pack(side="right")
+                    tk.Button(r, text="测试", bg=CARD, fg=TEXT_SUB, bd=0, relief="flat",
+                              font=(FONT, FS_XS), padx=6, cursor="hand2",
+                              activebackground=CARD,
+                              command=lambda p=pid: test_existing(p)).pack(side="right")
+                if not is_active:
+                    tk.Button(r, text="启用", bg=CARD, fg=SEED, bd=0, relief="flat",
+                              font=(FONT, FS_XS, "bold"), padx=8, cursor="hand2",
+                              activebackground=CARD,
+                              command=lambda p=pid: activate(p)).pack(side="right", padx=(0, 4))
+                if test_ok is False and test_err:
+                    tk.Label(r, text="（" + test_err[:40] + "）", bg=CARD, fg="#B91C1C",
+                             font=(FONT, FS_XS)).pack(side="right", padx=(0, 8))
+
+            add_row(
+                env.get("name") or "默认",
+                env.get("model") or "未配置",
+                active_id is None,
+                None,
+                bool(env.get("enabled")),
+                None,
+                "",
+            )
+            for item in data.get("items") or []:
+                add_row(
+                    item.get("name") or "自定义",
+                    item.get("model") or "",
+                    item.get("id") == active_id,
+                    item.get("id"),
+                    bool(item.get("has_key")),
+                    item.get("last_test_ok"),
+                    item.get("last_test_error") or "",
+                )
+
+        def load() -> None:
+            def work() -> None:
+                try:
+                    data = (http_json("/llm/profiles", timeout=15) or {}).get("data") or {}
+                    later(lambda: render(data))
+                except Exception as e:  # noqa: BLE001
+                    later(lambda: set_status(f"读取模型配置失败：{_http_detail(e)}", False))
+            threading.Thread(target=work, daemon=True).start()
+
+        def activate(pid: int | None) -> None:
+            def work() -> None:
+                try:
+                    path = "/llm/profiles/deactivate" if pid is None else f"/llm/profiles/{pid}/activate"
+                    http_json(path, method="POST", timeout=20)
+
+                    def done() -> None:
+                        set_status("已切换，下一次提问就用这个模型", True)
+                        load()
+                    later(done)
+                except Exception as e:  # noqa: BLE001
+                    later(lambda: set_status(f"切换失败：{_http_detail(e)}", False))
+            threading.Thread(target=work, daemon=True).start()
+
+        def ask_delete(pid: int, title: str) -> None:
+            if not messagebox.askyesno("删除模型配置", f"确定删除「{title}」？\n"
+                                                    "删掉后这个 Key 也就没了，需要重新填。",
+                                       parent=win):
+                return
+
+            def work() -> None:
+                try:
+                    http_json(f"/llm/profiles/{pid}", method="DELETE", timeout=15)
+                    later(lambda: (set_status("已删除", None), load()))
+                except Exception as e:  # noqa: BLE001
+                    later(lambda: set_status(f"删除失败：{_http_detail(e)}", False))
+            threading.Thread(target=work, daemon=True).start()
+
+        def test_existing(pid: int) -> None:
+            """列表行上的「测试」：key 用库里存的，不用把明文打出来。"""
+            set_status("正在测试…", None)
+
+            def work() -> None:
+                try:
+                    data = (http_json("/llm/test", method="POST",
+                                      payload={"profile_id": pid}, timeout=90) or {}).get("data") or {}
+                    ok = bool(data.get("ok"))
+
+                    def done() -> None:
+                        if ok:
+                            set_status(f"连接成功（{data.get('duration_ms')} ms）："
+                                       f"{data.get('endpoint')}", True)
+                        else:
+                            set_status(f"失败：{data.get('detail') or '未知原因'}"
+                                       f"｜请求地址 {data.get('endpoint')}", False)
+                        load()
+                    later(done)
+                except Exception as e:  # noqa: BLE001
+                    later(lambda: set_status(f"测试失败：{_http_detail(e)}", False))
+            threading.Thread(target=work, daemon=True).start()
+
+        def do_test() -> None:
+            payload = {
+                "base_url": url_var.get().strip(),
+                "model": model_var.get().strip(),
+                "api_key": key_var.get().strip(),
+                "thinking": bool(think_var.get()),
+                "json_mode": bool(json_var.get()),
+            }
+            if not payload["api_key"] or not payload["model"]:
+                set_status("测试要先填模型名和 API Key", False)
+                return
+            btn_test.configure(state="disabled")
+            set_status("正在测试…", None)
+
+            def work() -> None:
+                try:
+                    data = (http_json("/llm/test", method="POST", payload=payload,
+                                      timeout=90) or {}).get("data") or {}
+                    ok = bool(data.get("ok"))
+
+                    def done() -> None:
+                        btn_test.configure(state="normal")
+                        if ok:
+                            set_status(f"连接成功（{data.get('duration_ms')} ms）"
+                                       f"｜实际请求：{data.get('endpoint')}", True)
+                        else:
+                            set_status(f"失败：{data.get('detail') or '未知原因'}"
+                                       f"｜实际请求：{data.get('endpoint')}", False)
+                    later(done)
+                except Exception as e:  # noqa: BLE001
+                    later(lambda: (btn_test.configure(state="normal"),
+                                   set_status(f"测试失败：{_http_detail(e)}", False)))
+            threading.Thread(target=work, daemon=True).start()
+
+        def do_save() -> None:
+            name = name_var.get().strip() or model_var.get().strip()
+            payload = {
+                "name": name,
+                "base_url": url_var.get().strip(),
+                "model": model_var.get().strip(),
+                "api_key": key_var.get().strip(),
+                "thinking": bool(think_var.get()),
+                "json_mode": bool(json_var.get()),
+            }
+            if not (payload["name"] and payload["base_url"]
+                    and payload["model"] and payload["api_key"]):
+                set_status("配置名、接入地址、模型名、API Key 四项都要填", False)
+                return
+            btn_save.configure(state="disabled", text="保存中…")
+
+            def work() -> None:
+                try:
+                    http_json("/llm/profiles?activate=true", method="POST",
+                              payload=payload, timeout=20)
+
+                    def done() -> None:
+                        btn_save.configure(state="normal", text="保存并启用")
+                        key_var.set("")
+                        name_var.set("")
+                        set_status(f"已保存并启用「{name}」，现在提问就走它了", True)
+                        self._llm_refresh_button(model=payload["model"])
+                        load()
+                    later(done)
+                except Exception as e:  # noqa: BLE001
+                    later(lambda: (btn_save.configure(state="normal", text="保存并启用"),
+                                   set_status(f"保存失败：{_http_detail(e)}", False)))
+            threading.Thread(target=work, daemon=True).start()
+
+        btn_test.configure(command=do_test)
+        btn_save.configure(command=do_save)
+
+        load()
+        e_name.focus_set()
+
     def _chat_append(self, text: str, tag: str) -> None:
         self.chat_text.configure(state="normal")
         self.chat_text.insert("end", text + "\n", tag)
@@ -2595,8 +3013,15 @@ class QuanZhiApp:
         self.btn_ask.configure(state="normal", text="提问")
         self._chat_append(res.get("answer") or "（模型没有返回内容）", "a")
         gen = res.get("generated_by") or "local"
-        label = "智谱 " + gen if gen != "local" else "本地兜底（未用大模型）"
+        if gen == "local":
+            label = "本地兜底（未用大模型）"
+        elif res.get("model_source") == "profile":
+            # 接的是自定义模型就绝不能写「智谱」—— 那是替用户说一句不真的话
+            label = f"{res.get('model_name') or '自定义'} · {gen}"
+        else:
+            label = "智谱 " + gen
         self.chat_by.configure(text=f"本次回答：{label}")
+        self._llm_refresh_button(model="" if gen == "local" else gen)
         cites = res.get("citations") or []
         if cites:
             self._chat_append(f"引用 {len(cites)} 条通知：", "cite")

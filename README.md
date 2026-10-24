@@ -151,6 +151,34 @@ python scripts/check_dlut_sources.py --source myschool_jwc   # 先看单来源�
 
 ---
 
+## 换个模型 = 换一个接入地址
+
+内置默认是智谱 GLM-4.7-Flash，但**不绑死**。桌面版 AI 问答页右上角有个
+「模型：glm-4.7-flash ▾」，点开可以接任何 **OpenAI 兼容协议**的服务
+（DeepSeek、Kimi、通义、豆包、硅基流动，以及本机 Ollama）。
+
+要填四项：
+
+| 字段 | 例子 | 说明 |
+|---|---|---|
+| 配置名 | 我的 DeepSeek | 你自己看得懂就行 |
+| 接入地址 | `https://api.deepseek.com` | **只填域名也可以**，会自动补 `/v1/chat/completions` |
+| 模型名 | `deepseek-chat` | 服务商文档里那个 model id |
+| API Key | `sk-...` | 只存本机 |
+
+**先点「测试连接」再保存。** 地址填错时服务端不会说「你地址不对」，只会还一个
+401 / 404 / 超时，分不清是哪一项错。所以测试结果里会直接回显**最终实际请求的地址**，
+拼没拼对照一眼就知道。
+
+切换是**全局生效**的：问答、文章摘要、今日简报都跟着换，不是只换问答。
+用完想回默认，列表里点「默认 · glm-4.7-flash」那行的「启用」即可。
+
+两个坑已经踩过并处理了（详见 `docs/02-gotchas.md` #62）：
+本机/内网地址（Ollama）会被 Windows 系统代理拦成 502，代码里已按 host 自动直连；
+`thinking` / `response_format` 并非所有服务商都认，报错点名时会自动摘掉重试。
+
+---
+
 ## ⚠️ 诚实的边界说明
 
 这些是当前技术条件下**做不到**或**只能部分做到**的部分，不假装已经实现：
@@ -165,6 +193,8 @@ python scripts/check_dlut_sources.py --source myschool_jwc   # 先看单来源�
 | 桌面版关掉后收不到通知 | 气泡是本程序自己开的窗口，进程退出就没了 | 同上走 Webhook；或把后端常驻成 Windows 服务 |
 | 学校官网抓取 | 每所学校页面结构不同，部分站点 JS 动态渲染 / 有反爬 | 适配器配置驱动；动态站点预留 Playwright transport 开关 |
 | 打包 release APK | 需要本机 Android SDK + JDK，签名文件必须你自己生成 | 签名密钥必须由本人保管，本项目不代生成 |
+| 自定义大模型的 API Key 存储 | 存在本机 SQLite（`llm_profiles.api_key`）里，**明文，没有加密**。不假装加密：本地单机应用里自己造一把密钥，密钥也在同一台机器上，只是把明文换成一眼看不出来的样子，反而会让人误以为它是安全的 | 真正做到的只有两条：① 所有接口只回打码值（`sk-a****mnop`），编辑时把打码值原样回传即视为「没改」；② 这个库文件不出本机，知识库导出与 git 都不带它。要更高安全性请用系统凭据管理器自行接管 |
+| 非 OpenAI 协议的大模型 | 只支持 **OpenAI 兼容协议**（`/chat/completions`）。Anthropic 原生、Gemini 原生、部分国产私有协议**不能直连** | 用 one-api / new-api 之类的网关转一层成 OpenAI 格式，再把网关地址填进来 |
 
 三条硬约束已经写进代码、不是口头承诺：
 
@@ -178,10 +208,13 @@ python scripts/check_dlut_sources.py --source myschool_jwc   # 先看单来源�
 ## 测试与验收
 
 ```bash
-cd backend && pytest -q                        # 130 passed
+cd backend && pytest -q                        # 222 passed / 1 skipped
 python scripts/check_dlut_sources.py           # 单来源健康度
 python scripts/check_migration.py              # 迁移幂等
 python scripts/check_ai.py                     # AI 连通性
+python scripts/probe_llm_model.py --port 8791  # 模型选择界面链路（需先起隔离后端）
+python scripts/verify_all.py --port 8795       # 便携包一体化验收 40 项
+python scripts/smoke_desktop.py --port 8796    # 桌面端冒烟 58 项（需先起后端）
 ```
 
 这个项目对「测试通过」有额外的洁癖，因为它踩过太多**表面全绿、实际是错的**情况：

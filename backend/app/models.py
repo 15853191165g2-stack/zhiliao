@@ -1,6 +1,7 @@
 """ORM 模型。
 
-三张表：sources（数据源）/ notifications（通知）/ fetch_logs（抓取日志）。
+sources（数据源）/ notifications（通知）/ fetch_logs（抓取日志）
+/ push_logs（推送日志）/ app_meta（运行期小状态）/ llm_profiles（自建大模型接入配置）。
 """
 
 from __future__ import annotations
@@ -168,4 +169,48 @@ class AppMeta(Base):
 
     key: Mapped[str] = mapped_column(String(60), primary_key=True)
     value: Mapped[str] = mapped_column(Text, default="")
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc, onupdate=now_utc)
+
+
+class LLMProfile(Base):
+    """用户自己接的大模型接入配置（任何 OpenAI 兼容协议的服务都能填）。
+
+    为什么放数据库而不是只放 .env：用户要**在 AI 问答界面里当场切换模型**，
+    改 .env 得重启进程，等于没有这个功能。.env 里那套依然有效，作为「默认」
+    选项存在；库里没有任何 profile 处于激活态时就回落它
+    （见 services/llm_config.py 的 get_active）。
+
+    ⚠️ api_key 是**明文**存本机 SQLite 的，没有加密。
+       不假装加密：本地单机应用里自己造一个对称密钥，密钥也在同一台机器上，
+       只是把明文换成一眼看不出来的样子，反而会让人误以为它是安全的。
+       真正做到的只有两件事：① 对外接口一律打码返回（mask_key）；
+       ② 这个文件不出本机，不参与任何上传（知识库导出、GitHub 都不带它）。
+    """
+
+    __tablename__ = "llm_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # 显示名，用户自己起。唯一，避免列表里两个「GPT-4o」分不清。
+    name: Mapped[str] = mapped_column(String(60), nullable=False, unique=True)
+    # 接入地址：可以只填域名（自动补 /v1/chat/completions），也可以填完整 URL
+    base_url: Mapped[str] = mapped_column(Text, default="")
+    api_key: Mapped[str] = mapped_column(Text, default="")
+    model: Mapped[str] = mapped_column(String(120), default="")
+
+    # 是否发 `thinking: {"type":"disabled"}`。只有智谱系认这个字段，
+    # 别的服务商收到会 400 —— 所以真正发送时还要按域名再判一次（ai_client._is_zhipu）。
+    thinking: Mapped[bool] = mapped_column(Boolean, default=False)
+    # 是否要求 `response_format: json_object`。部分网关/开源模型不支持，ai_client 里
+    # 遇到「不认这个参数」的 400 会自动去掉它重试一次。
+    json_mode: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    # 同一时刻只允许一个激活。激活时会把其他行置 False（见 routes/llm.py）。
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+
+    # 最近一次「测试连接」的结果，给界面显示绿点/红点，省得用户每次都要重测
+    last_test_ok: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    last_test_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_test_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=now_utc, onupdate=now_utc)

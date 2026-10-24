@@ -263,6 +263,104 @@ class ChatResponse(BaseModel):
     answer: str
     citations: list[NotificationOut] = Field(default_factory=list)
     generated_by: str = "local"
+    # 这次回答实际用的哪份配置。界面上要显示出来 —— 「我以为在用 A，其实在跑 B」
+    # 是接自定义模型后最容易出现的困惑，唯一解法是每次都把名字亮出来。
+    model_name: str = ""
+    model_source: str = "local"   # env | profile | local
+
+
+# --------------------------------------------------------------------------- #
+# 自定义大模型（AI 问答页的「模型」选择器）
+# --------------------------------------------------------------------------- #
+class LLMProfileIn(BaseModel):
+    """新建一份自定义模型配置。
+
+    ⚠️ `api_key` 允许传打码值（含 `****`）—— 表示「这次没改 key」，后端保留原值。
+       前端编辑别的字段时不需要把明文 key 再拉回来一次，也就不会有明文 key
+       在界面上多停留一秒。
+    """
+
+    name: str = Field(..., min_length=1, max_length=60)
+    base_url: str = Field("", max_length=500)
+    model: str = Field("", max_length=120)
+    api_key: str = Field("", max_length=500)
+    thinking: bool = False
+    json_mode: bool = True
+
+
+class LLMProfileUpdate(BaseModel):
+    """部分更新：只传想改的字段。"""
+
+    name: str | None = Field(None, min_length=1, max_length=60)
+    base_url: str | None = Field(None, max_length=500)
+    model: str | None = Field(None, max_length=120)
+    api_key: str | None = Field(None, max_length=500)
+    thinking: bool | None = None
+    json_mode: bool | None = None
+
+
+class LLMProfileOut(BaseModel):
+    id: int
+    name: str
+    base_url: str
+    model: str
+    # 只回打码后的 key，永远不回明文
+    api_key_masked: str = ""
+    has_key: bool = False
+    thinking: bool = False
+    json_mode: bool = True
+    is_active: bool = False
+    # 最终真正会请求的地址。拼错了在这里就能看出来，不用去翻日志。
+    endpoint: str = ""
+    last_test_ok: bool | None = None
+    last_test_at: datetime | None = None
+    last_test_error: str | None = None
+
+
+class LLMEnvOut(BaseModel):
+    """内置默认（.env 那套）。它不是数据库行，但界面上要和自定义项并列显示。"""
+
+    name: str = "默认"
+    model: str = ""
+    base_url: str = ""
+    endpoint: str = ""
+    api_key_masked: str = ""
+    enabled: bool = False
+    is_active: bool = False
+
+
+class LLMListOut(BaseModel):
+    items: list[LLMProfileOut] = Field(default_factory=list)
+    env: LLMEnvOut = Field(default_factory=LLMEnvOut)
+    active_id: int | None = None
+    effective: str = ""
+    effective_model: str = ""
+    effective_source: str = "env"
+
+
+class LLMTestIn(BaseModel):
+    """测试连通性。可以不保存就测 —— 先试通再存，避免列表里堆一堆错的。
+
+    编辑已有配置时带上 `profile_id`：key 框里显示的是打码值，后端会自动取库里的
+    原文，所以「只改地址、没动 key」也能测。thinking / json_mode 用 None 表示
+    「沿用库里那份」，传 bool 才算显式指定。
+    """
+
+    base_url: str = Field("", max_length=500)
+    api_key: str = Field("", max_length=500)
+    model: str = Field("", max_length=120)
+    thinking: bool | None = None
+    json_mode: bool | None = None
+    profile_id: int | None = None
+
+
+class LLMTestOut(BaseModel):
+    ok: bool = False
+    detail: str = ""
+    endpoint: str = ""
+    model: str = ""
+    reply: str = ""
+    duration_ms: float = 0.0
 
 
 # --------------------------------------------------------------------------- #

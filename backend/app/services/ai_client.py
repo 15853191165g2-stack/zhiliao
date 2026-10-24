@@ -16,10 +16,12 @@ import json
 import logging
 import re
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
 from app.core.config import Settings, get_settings
+from app.services.llm_config import LLMConfig, get_active, is_zhipu
 
 logger = logging.getLogger(__name__)
 
@@ -43,17 +45,83 @@ def _is_rate_limited(text: str) -> bool:
     return any(h.lower() in low for h in _RATE_LIMIT_HINTS)
 
 
+def is_local_host(url: str) -> bool:
+    """目标是不是本机 / 内网地址。是的话这次请求必须**绕开系统代理**。
+
+    为什么必须单独判：Windows 上常配着系统代理（学校网尤其常见）。
+    httpx 默认 `trust_env=True`，会把 `127.0.0.1:11434`（本地 Ollama）也塞给代理，
+    代理自然连不上，返回 502 "upstream connect failed" ——
+    用户看到的是「我的 Ollama 明明在跑，知了却说连不上」。
+    实测本机就是这个现象（2026-10-24 用 127.0.0.1:9 验的）。
+    """
+    if not url:
+        return False
+    host = (urlsplit(url).hostname or "").lower()
+    if not host:
+        return False
+    if host in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        return True
+    if host.startswith("10.") or host.startswith("192.168.") or host.endswith(".local"):
+        return True
+    if host.startswith("172."):
+        try:
+            return 16 <= int(host.split(".")[1]) <= 31
+        except (IndexError, ValueError):
+            return False
+    return False
+
+
+# 「这个参数我不认识」的常见说法。只用于 400/422，且必须报错里点到名、
+# 或者明确说了 unsupported/unknown/extra —— 不能因为正文里出现「400」这种数字就误摘。
+_UNSUPPORTED_GENERIC = (
+    "unsupported", "not support", "not supported", "unknown field", "unknown parameter",
+    "unrecognized", "unexpected field", "extra fields", "invalid parameter", "无效参数",
+    "不支持", "多余",
+)
+
+
+def _drop_unsupported(payload: dict[str, Any], text: str) -> str | None:
+    """从请求体里摘掉对方不认的那个字段，返回摘掉的名字；没得摘返回 None。
+
+    只处理两个已知会打架的字段：
+      - `thinking`：智谱专属，别家见到会 400
+      - `response_format`：多数支持，少数网关/开源模型不支持
+    先看报错点名了谁；没点名但说了 unsupported 这类话，就按 thinking → response_format
+    的顺序逐个摘，下一轮再进来摘第二个（外层循环还有余量）。
+    """
+    low = (text or "").lower()
+    generic = any(k in low for k in _UNSUPPORTED_GENERIC)
+
+    if "thinking" in payload and ("thinking" in low or generic):
+        payload.pop("thinking", None)
+        return "thinking"
+    if "response_format" in payload and (
+        "response_format" in low or "json_object" in low or "json mode" in low or generic
+    ):
+        payload.pop("response_format", None)
+        return "response_format"
+    return None
+
+
 class AIClient:
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(self, settings: Settings | None = None, llm: LLMConfig | None = None) -> None:
         self.settings = settings or get_settings()
+        # 不传 llm 就取「当前生效配置」：库里激活了自定义模型就用它，否则回落 .env。
+        # 这样写是为了让 summarize / brief / chat 三个调用点**一处都不用改**，
+        # 也能跟着用户在问答界面上的切换走。
+        self.llm = llm or get_active(self.settings)
 
     @property
     def enabled(self) -> bool:
-        return self.settings.ai_enabled
+        return self.llm.enabled
 
     @property
     def model(self) -> str:
-        return self.settings.ai_model
+        return self.llm.model
+
+    @property
+    def model_label(self) -> str:
+        return self.llm.label
 
     # ------------------------------------------------------------------ #
     async def chat(
@@ -67,10 +135,10 @@ class AIClient:
         json_mode: bool = False,
     ) -> str:
         if not self.enabled:
-            raise AIError("未配置 AI_API_KEY")
+            raise AIError("未配置 API Key")
 
         payload: dict[str, Any] = {
-            "model": self.settings.ai_model,
+            "model": self.llm.model,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -79,17 +147,20 @@ class AIClient:
             "max_tokens": max_tokens,
             "stream": False,
         }
-        if self.settings.ai_thinking is False:
+        # thinking 只有智谱系认。别的服务商收到会 400，所以按域名判一次，
+        # 而不是无脑发（用户填的 base_url 可能是任何 OpenAI 兼容服务）。
+        if self.llm.thinking is False and is_zhipu(self.llm.endpoint):
             # 关掉思维链。GLM-4.7-Flash 默认先吐一大段 reasoning_content，
             # 且**计入 max_tokens** —— 实测会把额度吃光、content 返回空串。
             payload["thinking"] = {"type": "disabled"}
-        if json_mode and self.settings.ai_use_json_mode:
+        if json_mode and self.llm.json_mode:
             payload["response_format"] = {"type": "json_object"}
 
         headers = {
-            "Authorization": f"Bearer {self.settings.ai_api_key}",
+            "Authorization": f"Bearer {self.llm.api_key}",
             "Content-Type": "application/json",
         }
+        url = self.llm.endpoint
 
         last_err: Exception | None = None
         wait = _RATE_LIMIT_WAIT
@@ -97,11 +168,12 @@ class AIClient:
         for attempt in range(_RATE_LIMIT_RETRIES):
             try:
                 async with httpx.AsyncClient(
-                    timeout=httpx.Timeout(timeout or self.settings.ai_timeout)
+                    timeout=httpx.Timeout(timeout or self.settings.ai_timeout),
+                    # 本机/内网地址直连：否则会被系统代理拦成 502，
+                    # 而用户根本想不到「代理」这一层（见 is_local_host 的注释）。
+                    trust_env=not is_local_host(url),
                 ) as client:
-                    resp = await client.post(
-                        self.settings.ai_base_url, json=payload, headers=headers
-                    )
+                    resp = await client.post(url, json=payload, headers=headers)
 
                 # ★ 只在**失败响应**上判断限流（2026-10-19 修）。
                 #   以前这里写的是 `if resp.status_code == 429 or _is_rate_limited(resp.text)`，
@@ -127,6 +199,21 @@ class AIClient:
                         continue
                     raise last_err
 
+                # ★ 自定义模型的「参数不兼容」兜底（2026-10-24 加）。
+                #   用户填的任何 OpenAI 兼容服务，未必认 `thinking` / `response_format`：
+                #   智谱认前者、多数学后者、有些网关两个都不认，直接 400。
+                #   这里不猜是哪一家，而是**看报错内容把可疑参数摘掉重试** ——
+                #   否则界面上的表现是「刚填完 key 就报 HTTP 400」，用户会以为是
+                #   自己的 key 填错了，其实是请求体里多了个对方不认的字段。
+                if resp.status_code in (400, 422):
+                    dropped = _drop_unsupported(payload, resp.text)
+                    if dropped:
+                        logger.warning(
+                            "模型不认参数 `%s`，摘掉后重试一次：%s",
+                            dropped, resp.text[:120],
+                        )
+                        continue
+
                 if resp.status_code >= 400:
                     raise AIError(f"HTTP {resp.status_code}: {resp.text[:300]}")
 
@@ -135,10 +222,13 @@ class AIClient:
 
             except (httpx.HTTPError, AIError, ValueError, KeyError) as e:
                 last_err = e
-                # 网络类错误也给一次短退避，避免瞬时抖动直接降级
-                if attempt < _RATE_LIMIT_RETRIES - 1:
+                # 网络类错误只多试一次，且用 1.5 秒短退避。
+                # ⚠️ 不要沿用 429 那套指数退避（5→10→20）：连接被拒、域名解析失败
+                #    都不是「过一会儿就好」。实测 4 次重试会让「测试连接」转 13 秒，
+                #    用户只会以为界面卡死了。
+                if attempt < 1:
                     logger.warning("AI 调用失败（第 %d 次）：%s", attempt + 1, e)
-                    await asyncio.sleep(min(wait, 10.0))
+                    await asyncio.sleep(1.5)
                     continue
                 break
 
@@ -238,14 +328,37 @@ def extract_json(text: str) -> dict[str, Any] | None:
     return None
 
 
-async def check_ai(settings: Settings | None = None) -> dict[str, Any]:
-    """给 `/api/health` 和 `scripts/check_ai.py` 用的连通性自检。"""
+async def check_ai(
+    settings: Settings | None = None, llm: LLMConfig | None = None
+) -> dict[str, Any]:
+    """给 `/api/health`、`/api/llm/test` 和 `scripts/check_ai.py` 用的连通性自检。
+
+    返回里带上 name / source / endpoint，是因为「配了但没生效」最难查 ——
+    用户以为是 key 的问题，实际是地址拼错了。把最终请求地址回显出来就能自证。
+    """
     s = settings or get_settings()
-    client = AIClient(s)
+    cfg = llm or get_active(s)
+    client = AIClient(s, cfg)
     if not client.enabled:
-        return {"enabled": False, "ok": False, "detail": "未配置 AI_API_KEY，将使用本地规则摘要"}
+        return {"enabled": False, "ok": False, "detail": "未配置 API Key，将使用本地规则摘要"}
     try:
         text = await client.chat("你是测试助手，只回复 OK。", "回复 OK", max_tokens=16)
-        return {"enabled": True, "ok": True, "model": s.ai_model, "reply": text.strip()[:50]}
+        return {
+            "enabled": True,
+            "ok": True,
+            "name": cfg.name,
+            "model": cfg.model,
+            "source": cfg.source,
+            "endpoint": cfg.endpoint,
+            "reply": text.strip()[:50],
+        }
     except Exception as e:  # noqa: BLE001
-        return {"enabled": True, "ok": False, "model": s.ai_model, "detail": str(e)[:300]}
+        return {
+            "enabled": True,
+            "ok": False,
+            "name": cfg.name,
+            "model": cfg.model,
+            "source": cfg.source,
+            "endpoint": cfg.endpoint,
+            "detail": str(e)[:300],
+        }
