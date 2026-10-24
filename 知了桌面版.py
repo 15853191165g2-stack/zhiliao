@@ -98,6 +98,23 @@ BACKEND_DIR = ROOT / "backend"
 PYTHON_EXE = ROOT / "python" / "python.exe"
 LOG_DIR = ROOT / "logs"
 LOG_DIR.mkdir(parents=True, exist_ok=True)
+ICON_PATH = ROOT / "zhiliao.ico"
+
+
+def apply_window_icon(win) -> None:
+    """给窗口装上「知」字图标（任务栏、Alt-Tab 显示用）。
+
+    用 default= 而不是 iconbitmap()：default 一次设置对整个进程生效，
+    详情窗口、模型对话框这些 Toplevel 不用逐个补。
+    找不到图标就静默跳过 —— 有人会把 .py 单独拷走跑，不该因此报错。
+    """
+    if not ICON_PATH.exists():
+        return
+    try:
+        win.iconbitmap(default=str(ICON_PATH))
+    except Exception:  # noqa: BLE001
+        pass
+
 
 HOST = "127.0.0.1"
 # 端口允许用环境变量覆盖（QUANZHI_PORT），默认 8765。
@@ -923,10 +940,7 @@ class QuanZhiApp:
         h = min(h, max(640, sh - 80))
         r.geometry(f"{w}x{h}+{max(0,(sw-w)//2)}+{max(0,(sh-h)//2)}")
         r.minsize(1020, 660)
-        try:
-            r.iconbitmap(default="")
-        except Exception:  # noqa: BLE001
-            pass
+        apply_window_icon(r)
 
     def _tune_fonts(self) -> None:
         """让 Tk 用上系统实际 DPI，避免高缩放下字被拉伸糊掉。
@@ -3375,6 +3389,7 @@ def main() -> None:
 
     root = tk.Tk()
     root.withdraw()   # 先藏着，等后端就绪再显示
+    apply_window_icon(root)   # 放在最前面：启动画面也是 Toplevel，一起沾光
 
     # 启动画面
     splash = tk.Toplevel(root)

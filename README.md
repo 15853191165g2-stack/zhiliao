@@ -87,7 +87,40 @@ curl http://127.0.0.1:8000/api/health
 curl "http://127.0.0.1:8000/api/notifications?page_size=5"
 ```
 
-### 桌面版（Windows，免安装）
+### 桌面版（Windows）
+
+**方式一：安装包（推荐，给不会装 Python 的人）**
+
+双击 `dist/知了-Setup-1.0.0.exe`，一路下一步。装到
+`%LOCALAPPDATA%\Programs\ZhiLiao`（**按用户安装，不弹 UAC**），
+自带来 64 位 Python 运行时，不依赖本机环境。
+
+> 为什么不做 Program Files：知了启动第一件事是建库写通知，
+> 装在 Program Files 里普通用户没写权限，装完打不开（docs/02 #64 坑 6）。
+
+安装包里**不含任何 AI 密钥**——包会发给别人，`.env` 与「模型配置」表的 key
+都已清空。开箱能看 265 条已抓好的真实通知（每条 3 行摘要齐全），
+要用 AI 问答/重新摘要，自己在问答页右上「模型」里填地址和 key。
+
+卸载会问「是否保留通知数据」，选保留存到 `%LOCALAPPDATA%\ZhiLiaoData`，
+重装时自动问要不要恢复。静默卸载（`/S`）**一律保留数据**。
+
+自己打一个安装包：
+
+```bash
+python scripts/build_installer/build.py --source D:/QuanZhi
+# 产物 dist/知了-Setup-1.0.0.exe（约 20.6 MB，装完 95 MB / 4078 个文件）
+# 需要 NSIS 3：装到默认位置，或 NSIS_HOME 指向 makensis.exe 所在目录
+```
+
+三道验收，缺一层都可能是假的（docs/02 #64）：
+
+```bash
+python scripts/build_installer/verify_installer.py "<装好的目录>" --gui   # 载荷能不能跑
+python scripts/build_installer/verify_install_cycle.py dist/知了-Setup-1.0.0.exe  # 装/卸/重装/恢复
+```
+
+**方式二：直接跑源码**
 
 ```bash
 python quanzhi_desktop.py        # 需要本机有 Python 3.11+ 和 tkinter
