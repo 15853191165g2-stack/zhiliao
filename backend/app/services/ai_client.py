@@ -133,7 +133,15 @@ class AIClient:
         max_tokens: int = 1200,
         timeout: float | None = None,
         json_mode: bool = False,
+        retry: bool = True,
     ) -> str:
+        """发一次 chat 请求。
+
+        `retry=False` 用于「测试连接」：连通性测试要回答的是**现在这一下通不通**，
+        重试只会把 15 秒的失败拖成 30 秒，用户在界面上看到的就是转圈不动。
+        实测校外访问校内网关时，60s 超时 × 2 次 = 121 秒，而前端 90 秒就断了 ——
+        用户等 1 分半拿到的是「卡住」而不是「连不上」。
+        """
         if not self.enabled:
             raise AIError("未配置 API Key")
 
@@ -189,7 +197,7 @@ class AIClient:
                 if resp.status_code == 429 or _is_rate_limited(resp.text):
                     # 免费档限流：退避后重试，不要一次失败就放弃
                     last_err = AIError(f"HTTP {resp.status_code}: {resp.text[:200]}")
-                    if attempt < _RATE_LIMIT_RETRIES - 1:
+                    if retry and attempt < _RATE_LIMIT_RETRIES - 1:
                         logger.warning(
                             "AI 被限流（第 %d 次），%.0f 秒后重试：%s",
                             attempt + 1, wait, resp.text[:120],
@@ -226,13 +234,22 @@ class AIClient:
                 # ⚠️ 不要沿用 429 那套指数退避（5→10→20）：连接被拒、域名解析失败
                 #    都不是「过一会儿就好」。实测 4 次重试会让「测试连接」转 13 秒，
                 #    用户只会以为界面卡死了。
-                if attempt < 1:
+                if retry and attempt < 1:
                     logger.warning("AI 调用失败（第 %d 次）：%s", attempt + 1, e)
                     await asyncio.sleep(1.5)
                     continue
                 break
 
-        raise AIError(f"AI 调用最终失败：{last_err}")
+        # ⚠️ httpx 的超时类异常 `str()` 是**空字符串**。
+        #    直接 `f"…：{last_err}"` 会得到「AI 调用最终失败：」后面一片空白，
+        #    界面上就是一句没头没尾的话（实测黑洞网关，probe_llm_model 5d）。
+        #    补上类型名和「等了多少秒」，用户才知道是超时还是被拒。
+        reason = str(last_err).strip()
+        if not reason:
+            wait = timeout or self.settings.ai_timeout
+            reason = (f"{type(last_err).__name__ if last_err else '未知错误'}："
+                      f"{wait:.0f} 秒内没有响应（网关不可达，或该服务只允许校内网访问）")
+        raise AIError(f"AI 调用最终失败：{reason}")
 
     async def chat_json(
         self,
@@ -400,12 +417,20 @@ async def list_remote_models(
 
 
 async def check_ai(
-    settings: Settings | None = None, llm: LLMConfig | None = None
+    settings: Settings | None = None,
+    llm: LLMConfig | None = None,
+    *,
+    timeout: float | None = None,
+    retry: bool = True,
 ) -> dict[str, Any]:
     """给 `/api/health`、`/api/llm/test` 和 `scripts/check_ai.py` 用的连通性自检。
 
     返回里带上 name / source / endpoint，是因为「配了但没生效」最难查 ——
     用户以为是 key 的问题，实际是地址拼错了。把最终请求地址回显出来就能自证。
+
+    ⚠️ 界面上的「测试连接」必须传 `timeout=15, retry=False`。
+    默认的 60 秒 × 2 次尝试，在校外访问校内网关时会让按钮转 2 分钟，
+    用户分不清是「在等」还是「卡死了」。
     """
     s = settings or get_settings()
     cfg = llm or get_active(s)
@@ -413,7 +438,10 @@ async def check_ai(
     if not client.enabled:
         return {"enabled": False, "ok": False, "detail": "未配置 API Key，将使用本地规则摘要"}
     try:
-        text = await client.chat("你是测试助手，只回复 OK。", "回复 OK", max_tokens=16)
+        text = await client.chat(
+            "你是测试助手，只回复 OK。", "回复 OK",
+            max_tokens=16, timeout=timeout, retry=retry,
+        )
         return {
             "enabled": True,
             "ok": True,
@@ -424,6 +452,14 @@ async def check_ai(
             "reply": text.strip()[:50],
         }
     except Exception as e:  # noqa: BLE001
+        # httpx 的 ReadTimeout 的 str() 是**空字符串** —— 界面会显示
+        # 「失败：AI 调用最终失败：」后面什么都没有，用户完全不知道发生了什么。
+        # 实测（probe_llm_model 5d，黑洞网关）就是这么一片空白。
+        detail = str(e).strip()
+        if not detail:
+            wait = timeout or s.ai_timeout
+            detail = (f"{type(e).__name__}：{wait:.0f} 秒内没有响应"
+                      f"（网关不可达，或该服务只允许校内网访问）")
         return {
             "enabled": True,
             "ok": False,
@@ -431,5 +467,5 @@ async def check_ai(
             "model": cfg.model,
             "source": cfg.source,
             "endpoint": cfg.endpoint,
-            "detail": str(e)[:300],
+            "detail": detail[:300],
         }

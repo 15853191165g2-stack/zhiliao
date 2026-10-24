@@ -272,7 +272,10 @@ async def test_connection(
     )
 
     started = time.perf_counter()
-    result = await check_ai(get_settings(), cfg)
+    # 15 秒、不重试：这是「点一下告诉我通不通」，不是「帮我把请求送到」。
+    # 默认配置（60s × 2 次）在校外打校内网关时会转 2 分钟，
+    # 而前端 90 秒就断了 —— 用户等来的是「卡住」，不是「连不上」。
+    result = await check_ai(get_settings(), cfg, timeout=15.0, retry=False)
     elapsed = (time.perf_counter() - started) * 1000
 
     # 顺手把测试结果写回该配置，界面能直接显示上次是否通过

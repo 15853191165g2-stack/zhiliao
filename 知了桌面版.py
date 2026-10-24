@@ -2873,7 +2873,8 @@ class QuanZhiApp:
                     data = (http_json("/llm/profiles", timeout=15) or {}).get("data") or {}
                     later(lambda: render(data))
                 except Exception as e:  # noqa: BLE001
-                    later(lambda: set_status(f"读取模型配置失败：{_http_detail(e)}", False))
+                    msg = _http_detail(e)   # e 出 except 块即失效，先取出来
+                    later(lambda m=msg: set_status(f"读取模型配置失败：{m}", False))
             threading.Thread(target=work, daemon=True).start()
 
         def activate(pid: int | None) -> None:
@@ -2887,7 +2888,8 @@ class QuanZhiApp:
                         load()
                     later(done)
                 except Exception as e:  # noqa: BLE001
-                    later(lambda: set_status(f"切换失败：{_http_detail(e)}", False))
+                    msg = _http_detail(e)   # e 出 except 块即失效，先取出来
+                    later(lambda m=msg: set_status(f"切换失败：{m}", False))
             threading.Thread(target=work, daemon=True).start()
 
         def ask_delete(pid: int, title: str) -> None:
@@ -2901,7 +2903,8 @@ class QuanZhiApp:
                     http_json(f"/llm/profiles/{pid}", method="DELETE", timeout=15)
                     later(lambda: (set_status("已删除", None), load()))
                 except Exception as e:  # noqa: BLE001
-                    later(lambda: set_status(f"删除失败：{_http_detail(e)}", False))
+                    msg = _http_detail(e)   # e 出 except 块即失效，先取出来
+                    later(lambda m=msg: set_status(f"删除失败：{m}", False))
             threading.Thread(target=work, daemon=True).start()
 
         def test_existing(pid: int) -> None:
@@ -2924,7 +2927,8 @@ class QuanZhiApp:
                         load()
                     later(done)
                 except Exception as e:  # noqa: BLE001
-                    later(lambda: set_status(f"测试失败：{_http_detail(e)}", False))
+                    msg = _http_detail(e)   # e 出 except 块即失效，先取出来
+                    later(lambda m=msg: set_status(f"测试失败：{m}", False))
             threading.Thread(target=work, daemon=True).start()
 
         def do_test() -> None:
@@ -2939,26 +2943,51 @@ class QuanZhiApp:
                 set_status("测试要先填模型名和 API Key", False)
                 return
             btn_test.configure(state="disabled")
-            set_status("正在测试…", None)
+            set_status("正在测试…（最多等 20 秒）", None)
+
+            # 状态机 + 看门狗：这是「按钮永远转圈」的第二道保险。
+            # 第一道是修好 except 里的 NameError；但只要回调有任何一条路径
+            # 没走到（线程卡住、后端 hang、异常被别处吞掉），界面就会锁死。
+            # 所以不依赖回调一定执行 —— 到点未结束就自己收场。
+            state = {"done": False}
+
+            def finish(text: str, ok: bool | None) -> None:
+                if state["done"]:
+                    return
+                state["done"] = True
+                try:
+                    btn_test.configure(state="normal")
+                except tk.TclError:
+                    return           # 窗口已经关了，没什么可恢复的
+                set_status(text, ok)
+
+            def guard() -> None:
+                if alive():
+                    finish("测试超时：25 秒没等到响应。常见原因是网关只在校内网可达，"
+                           "或接入地址填错了 —— 请核对回显的「实际请求」地址。", False)
+            win.after(25000, guard)
 
             def work() -> None:
                 try:
                     data = (http_json("/llm/test", method="POST", payload=payload,
-                                      timeout=90) or {}).get("data") or {}
+                                      timeout=20) or {}).get("data") or {}
                     ok = bool(data.get("ok"))
-
-                    def done() -> None:
-                        btn_test.configure(state="normal")
-                        if ok:
-                            set_status(f"连接成功（{data.get('duration_ms')} ms）"
-                                       f"｜实际请求：{data.get('endpoint')}", True)
-                        else:
-                            set_status(f"失败：{data.get('detail') or '未知原因'}"
-                                       f"｜实际请求：{data.get('endpoint')}", False)
-                    later(done)
+                    if ok:
+                        text = (f"连接成功（{data.get('duration_ms')} ms）"
+                                f"｜实际请求：{data.get('endpoint')}")
+                    else:
+                        text = (f"失败：{data.get('detail') or '未知原因'}"
+                                f"｜实际请求：{data.get('endpoint')}")
+                    later(lambda t=text, o=ok: finish(t, o))
                 except Exception as e:  # noqa: BLE001
-                    later(lambda: (btn_test.configure(state="normal"),
-                                   set_status(f"测试失败：{_http_detail(e)}", False)))
+                    # ⚠️ 错误文本必须在这里先算成字符串。
+                    # `except ... as e` 的 e 在 except 块结束时就没了（PEP 3110），
+                    # 而 lambda 要等主线程 40ms 后才执行 —— 那时访问 e 会抛
+                    # NameError: cannot access free variable 'e'。
+                    # 这个异常被 _ui_pump 吞进 traceback，界面表现是
+                    # **按钮永久禁用、状态文字永远停在「正在测试…」**。
+                    msg = _http_detail(e)
+                    later(lambda m=msg: finish(f"测试失败：{m}", False))
             threading.Thread(target=work, daemon=True).start()
 
         def do_save() -> None:
@@ -2991,8 +3020,9 @@ class QuanZhiApp:
                         load()
                     later(done)
                 except Exception as e:  # noqa: BLE001
-                    later(lambda: (btn_save.configure(state="normal", text="保存并启用"),
-                                   set_status(f"保存失败：{_http_detail(e)}", False)))
+                    msg = _http_detail(e)   # 同上：e 出 except 块即失效
+                    later(lambda m=msg: (btn_save.configure(state="normal", text="保存并启用"),
+                                         set_status(f"保存失败：{m}", False)))
             threading.Thread(target=work, daemon=True).start()
 
         def pick_model(items: list[str]) -> None:
@@ -3089,8 +3119,9 @@ class QuanZhiApp:
                                        f"｜请求：{data.get('endpoint')}", False)
                     later(done)
                 except Exception as e:  # noqa: BLE001
-                    later(lambda: (btn_models.configure(state="normal", text="拉取模型列表"),
-                                   set_status(f"拉取失败：{_http_detail(e)}", False)))
+                    msg = _http_detail(e)   # 同上：e 出 except 块即失效
+                    later(lambda m=msg: (btn_models.configure(state="normal", text="拉取模型列表"),
+                                         set_status(f"拉取失败：{m}", False)))
             threading.Thread(target=work, daemon=True).start()
 
         btn_models.configure(command=do_fetch_models)
@@ -3123,7 +3154,10 @@ class QuanZhiApp:
                 res = data.get("data") or {}
                 self._post(lambda: self._chat_render(res))
             except Exception as e:  # noqa: BLE001
-                self._post(lambda: self._chat_error(e))
+                # 同 llm_dialog 的坑：e 出 except 块就失效，lambda 延迟执行会
+                # 抛 NameError，表现是「提问失败了，但按钮永远停在思考中…」。
+                msg = _http_detail(e)
+                self._post(lambda m=msg: self._chat_error(m))
 
         threading.Thread(target=work, daemon=True).start()
 
@@ -3148,7 +3182,7 @@ class QuanZhiApp:
                 self._chat_append(f"  {i}. [{date}] {c.get('title')}", "cite")
         self._chat_append("", "cite")
 
-    def _chat_error(self, e: Exception) -> None:
+    def _chat_error(self, e: Exception | str) -> None:
         self.btn_ask.configure(state="normal", text="提问")
         self._chat_append(f"出错了：{e}", "cite")
 
@@ -3327,8 +3361,11 @@ class QuanZhiApp:
                 chk = ((d.get("data") or {}).get("ai") or {}).get("check") or {}
                 self._post(lambda: self._ai_result(chk))
             except Exception as e:  # noqa: BLE001
-                self._post(lambda: messagebox.showerror(
-                    "自检失败", str(e), parent=self.root))
+                # 同 llm_dialog：e 出 except 块即失效。写错的话「AI 自检失败」
+                # 弹窗永远不出现，状态栏停在「正在自检 AI…」，用户以为还在跑。
+                msg = _http_detail(e)
+                self._post(lambda m=msg: messagebox.showerror(
+                    "自检失败", m, parent=self.root))
 
         threading.Thread(target=work, daemon=True).start()
 

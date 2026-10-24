@@ -103,3 +103,71 @@ async def test_429_still_retries_and_then_fails(monkeypatch) -> None:
         await _client().chat("system", "user")
 
     assert len(calls) == ai_client_mod._RATE_LIMIT_RETRIES, "429 应该按上限重试后再放弃"
+
+
+# --------------------------------------------------------------------------- #
+# 空错误文本（2026-10-24）
+# --------------------------------------------------------------------------- #
+async def test_timeout_error_message_is_not_blank(monkeypatch) -> None:
+    """httpx 超时异常的 str() 是空串 —— 错误信息不能退化成「AI 调用最终失败：」。
+
+    实测界面表现：状态栏写着「失败：AI 调用最终失败：」后面一片空白，
+    用户既不知道是超时还是被拒，也不知道等了多少秒（probe_llm_model 5d）。
+    """
+    import httpx
+
+    class _Client:
+        def __init__(self, *args, **kwargs) -> None:  # noqa: D107
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc) -> bool:
+            return False
+
+        async def post(self, *args, **kwargs):
+            raise httpx.ReadTimeout("")      # str() == ""
+
+    monkeypatch.setattr(ai_client_mod.httpx, "AsyncClient", _Client)
+
+    with pytest.raises(AIError) as ei:
+        await _client().chat("system", "user", timeout=15.0, retry=False)
+    msg = str(ei.value)
+
+    assert not msg.rstrip().endswith(("：", ":")), f"错误信息只有冒号：{msg!r}"
+    assert "ReadTimeout" in msg, f"要告诉用户是哪类错：{msg!r}"
+    assert "15 秒内没有响应" in msg, f"要告诉用户等了多久：{msg!r}"
+
+
+async def test_check_ai_detail_is_readable_on_timeout(monkeypatch) -> None:
+    """/llm/test 拿到的 detail 必须能直接显示给人看。"""
+    import httpx
+
+    from app.services.ai_client import check_ai
+    from app.services.llm_config import LLMConfig
+
+    class _Client:
+        def __init__(self, *args, **kwargs) -> None:  # noqa: D107
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc) -> bool:
+            return False
+
+        async def post(self, *args, **kwargs):
+            raise httpx.ConnectTimeout("")
+
+    monkeypatch.setattr(ai_client_mod.httpx, "AsyncClient", _Client)
+    cfg = LLMConfig(name="t", base_url="http://example.invalid/v1",
+                    api_key="sk-x", model="m")
+
+    res = await check_ai(ai_client_mod.Settings(ai_api_key="k"), cfg,
+                         timeout=15.0, retry=False)
+
+    assert res["ok"] is False
+    assert res["detail"].strip(), "detail 不能是空串"
+    assert res["detail"].rstrip().endswith(("：", ":")) is False
+    assert "秒内没有响应" in res["detail"]

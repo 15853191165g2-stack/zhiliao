@@ -210,6 +210,7 @@ for w, text in ((e_name, "探针模型"), (e_model, "probe-model"),
 # ---- 5. 测试连接（地址连不上，必须如实报失败并回显地址） ----
 status_found = ""
 if btn_test is not None and not fails:
+    t_start = time.perf_counter()
     btn_test.invoke()
     deadline = time.time() + args.timeout
     while time.time() < deadline:
@@ -224,6 +225,7 @@ if btn_test is not None and not fails:
                 break
         if status_found:
             break
+    elapsed = time.perf_counter() - t_start
     print("5) 测试连接结果：", (status_found[:110] or "✗ 没有回显"))
     if not status_found:
         fails.append("点测试连接后没有任何状态提示")
@@ -231,6 +233,164 @@ if btn_test is not None and not fails:
         fails.append(f"不通的地址却报成功：{status_found[:80]}")
     elif "实际请求" not in status_found and "127.0.0.1" not in status_found:
         fails.append("失败时没有回显最终请求地址（用户没法自查）")
+
+    # ★ 关键断言：失败之后按钮必须回到可点状态。
+    #   2026-10-24 实测踩过 —— except 里写 `later(lambda: ... e ...)`，
+    #   e 出 except 块即失效 → 回调抛 NameError → 按钮永久 disabled、
+    #   状态文字永远停在「正在测试…」，用户只能关窗口。
+    #   只断言「有失败提示」是抓不到这个的：旧代码连提示都不会出现。
+    pump(root, 0.5)
+    try:
+        st = str(btn_test.cget("state"))
+    except Exception:  # noqa: BLE001
+        st = "?"
+    print(f"   「测试连接」按钮状态：{st}（{elapsed:.1f}s）")
+    if st != "normal":
+        fails.append(f"测试结束后按钮没恢复可点（state={st}）—— 界面锁死")
+    if elapsed > 25:
+        fails.append(f"测试耗时 {elapsed:.0f}s 太久，用户会以为卡死")
+
+# ---- 5c. 黑洞地址：必须「超时如实报错」，不能转两分钟 ----
+if btn_test is not None and e_url is not None and not fails:
+    # 192.0.2.0/24 是 RFC 5737 的测试网段，保证不会真的通 —— 只能等超时。
+    # 这是用户真实场景的复刻：校外打校内网关，TCP 无响应。
+    e_url.delete(0, "end")
+    e_url.insert(0, "http://192.0.2.1:9")
+    t_start = time.perf_counter()
+    btn_test.invoke()
+    line = ""
+    deadline = time.time() + 40
+    while time.time() < deadline:
+        pump(root, 0.4)
+        for w in find_all(walk(win, []), "Label"):
+            try:
+                t = str(w.cget("text"))
+            except Exception:  # noqa: BLE001
+                continue
+            if "失败" in t or "超时" in t:
+                line = t
+                break
+        if line:
+            break
+    dt = time.perf_counter() - t_start
+    print(f"5c) 黑洞地址：{line[:80] or '✗ 一直没结果'}（{dt:.1f}s）")
+    if not line:
+        fails.append("黑洞地址 40 秒内没给出任何结果（界面卡死）")
+    if dt > 30:
+        fails.append(f"黑洞地址等了 {dt:.0f}s，太久了 —— 后端没走短超时")
+    try:
+        if str(btn_test.cget("state")) != "normal":
+            fails.append("黑洞地址测试后按钮没恢复")
+    except Exception:  # noqa: BLE001
+        pass
+    e_url.delete(0, "end")
+    e_url.insert(0, "http://127.0.0.1:9")
+
+# ---- 5d. 慢服务：请求超时后界面必须自己收场 ----
+# 这是用户真实踩到的场景，也是「卡在正在测试」的唯一复现路径：
+#   地址填对但网关不响应 → 前端 urllib 超时 → 走 except 分支
+#   → 如果 except 里的回调写错（引用 e），按钮永久 disabled、文字停在「正在测试…」。
+# 注意「连接被拒」是复现不出来的：后端把失败包装成 HTTP 200 + ok:false，
+# 前端走的是成功分支，根本进不到 except。
+if btn_test is not None and e_url is not None and e_key is not None and not fails:
+    import socket
+    import threading
+
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    srv.bind(("127.0.0.1", 0))
+    srv.listen(16)
+    slow_port = int(srv.getsockname()[1])
+    held: list = []
+
+    def blackhole() -> None:
+        """只 accept、不 recv 也不 send —— 让对端一直等到自己的超时。"""
+        while True:
+            try:
+                conn, _ = srv.accept()
+                held.append(conn)
+            except OSError:
+                break
+
+    threading.Thread(target=blackhole, daemon=True).start()
+    for w, text in ((e_url, f"http://127.0.0.1:{slow_port}/v1"), (e_key, "sk-probe-0000")):
+        w.delete(0, "end")
+        w.insert(0, text)
+    set_url_before = str(btn_test.cget("state"))
+    t_start = time.perf_counter()
+    btn_test.invoke()
+    line = ""
+    while time.perf_counter() - t_start < 32:
+        pump(root, 0.4)
+        for w in find_all(walk(win, []), "Label"):
+            try:
+                t = str(w.cget("text"))
+            except Exception:  # noqa: BLE001
+                continue
+            if "失败" in t or "超时" in t:
+                line = t
+                break
+        if line:
+            break
+    dt = time.perf_counter() - t_start
+    try:
+        st_after = str(btn_test.cget("state"))
+    except Exception:  # noqa: BLE001
+        st_after = "?"
+    print(f"5d) 不响应的网关：{line[:80] or '✗ 一直没结果'}（{dt:.1f}s，"
+          f"按钮 {set_url_before}→{st_after}）")
+    if not line:
+        fails.append("网关不响应时 32 秒内没有结果 —— 界面卡死在「正在测试…」")
+    if st_after != "normal":
+        fails.append(f"超时后按钮没恢复（state={st_after}）—— 用户只能关窗口")
+    if dt > 30:
+        fails.append(f"超时场景等了 {dt:.0f}s，太久")
+    try:
+        srv.close()
+        for c in held:
+            c.close()
+    except Exception:  # noqa: BLE001
+        pass
+    e_url.delete(0, "end")
+    e_url.insert(0, "http://127.0.0.1:9")
+
+# ---- 5e. 后端不可达：走的是前端 except 分支，按钮同样必须恢复 ----
+# 为什么单拎这一步：上面几条都是「后端返回 HTTP 200 + ok:false」，
+# 前端走的是**成功分支**，压根碰不到 except。而用户当初卡死正是在 except 里
+# ——旧写法 `later(lambda: ... e ...)` 里 e 出 except 块即失效，
+# 回调抛 NameError 被 _ui_pump 吞掉，按钮永久 disabled、文字停在「正在测试…」。
+# 这里把 API 指到一个死端口，精确命中那条路径。
+if btn_test is not None and not fails:
+    saved_api = m.API
+    m.API = "http://127.0.0.1:9/api"      # 谁都连不上，必进 except
+    try:
+        t_start = time.perf_counter()
+        btn_test.invoke()
+        line = ""
+        while time.perf_counter() - t_start < 15:
+            pump(root, 0.3)
+            for w in find_all(walk(win, []), "Label"):
+                try:
+                    t = str(w.cget("text"))
+                except Exception:  # noqa: BLE001
+                    continue
+                if "失败" in t and "正在测试" not in t:
+                    line = t
+                    break
+            if line:
+                break
+        dt = time.perf_counter() - t_start
+        try:
+            st_after = str(btn_test.cget("state"))
+        except Exception:  # noqa: BLE001
+            st_after = "?"
+        print(f"5e) 后端不可达：{line[:70] or '✗ 没有反应'}（{dt:.1f}s，按钮 {st_after}）")
+        if not line:
+            fails.append("后端不可达时界面没有任何报错 —— 按钮锁死在「正在测试…」")
+        if st_after != "normal":
+            fails.append(f"except 分支没恢复按钮（state={st_after}）")
+    finally:
+        m.API = saved_api
 
 # ---- 5b. 拉取模型列表 ----
 btn_models = find(dw, "Button", "拉取模型列表")

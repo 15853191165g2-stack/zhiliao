@@ -252,7 +252,10 @@ def test_connection_reports_endpoint_on_failure(client, monkeypatch):
     """
     from app.api.routes import llm as llm_route
 
-    async def fake_check(settings, cfg):
+    seen: dict = {}
+
+    async def fake_check(settings, cfg, **kw):
+        seen.update(kw)          # 顺手把超时契约钉住，见下方断言
         return {
             "ok": False,
             "detail": "模拟：401 无效的 key",
@@ -269,6 +272,10 @@ def test_connection_reports_endpoint_on_failure(client, monkeypatch):
             "model": "deepseek-chat",
         },
     )
+    # 「测试连接」必须走 15 秒 + 不重试。
+    # 默认的 60s × 2 次会让按钮转 2 分钟，而前端 20 秒就断了 ——
+    # 用户看到的是「卡住」而不是「连不上」，实测踩过（2026-10-24）。
+    assert seen == {"timeout": 15.0, "retry": False}, seen
     data = resp.json()["data"]
     assert data["endpoint"] == "https://api.deepseek.com/v1/chat/completions"
     assert data["model"] == "deepseek-chat"
@@ -280,7 +287,7 @@ def test_connection_result_written_back(client, monkeypatch):
     """测过就该在列表里留下痕迹（绿点/红点），省得用户每次重测。"""
     from app.api.routes import llm as llm_route
 
-    async def fake_ok(settings, cfg):
+    async def fake_ok(settings, cfg, **kw):
         return {"ok": True, "reply": "OK", "endpoint": cfg.endpoint, "model": cfg.model}
 
     monkeypatch.setattr(llm_route, "check_ai", fake_ok)
