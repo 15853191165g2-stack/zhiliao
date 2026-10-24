@@ -2758,6 +2758,11 @@ class QuanZhiApp:
 
         btns = tk.Frame(form, bg=BG)
         btns.grid(row=5, column=0, columnspan=4, sticky="w", pady=(10, 0))
+        btn_models = tk.Button(btns, text="拉取模型列表", bg=CARD, fg=TEXT, bd=0, relief="flat",
+                               font=(FONT, FS_SM), padx=14, pady=5, cursor="hand2",
+                               highlightthickness=1, highlightbackground=BORDER,
+                               activebackground=CARD, activeforeground=SEED)
+        btn_models.pack(side="left", padx=(0, 10))
         btn_test = tk.Button(btns, text="测试连接", bg=CARD, fg=TEXT, bd=0, relief="flat",
                              font=(FONT, FS_SM), padx=16, pady=5, cursor="hand2",
                              highlightthickness=1, highlightbackground=BORDER,
@@ -2976,6 +2981,105 @@ class QuanZhiApp:
                                    set_status(f"保存失败：{_http_detail(e)}", False)))
             threading.Thread(target=work, daemon=True).start()
 
+        def pick_model(items: list[str]) -> None:
+            """从服务商的模型清单里挑一个。
+
+            学校网关一次列出 25 个模型，id 是 `GLM-4.6-W8A8` `DeepSeek-V3.1-W8A8`
+            这种带量化后缀的写法 —— 让人手打就是让人猜。猜错了服务端只回
+            404 model not found，界面上分不清是「名字错」还是「地址错」。
+            """
+            win2 = tk.Toplevel(win)
+            win2.title("选择模型")
+            win2.configure(bg=BG)
+            sw2, sh2 = win2.winfo_screenwidth(), win2.winfo_screenheight()
+            win2.geometry(f"420x480+{max(0, (sw2 - 420) // 2 + 120)}+{max(0, (sh2 - 480) // 2)}")
+            win2.transient(win)
+            try:
+                win2.grab_set()
+            except Exception:  # noqa: BLE001
+                pass
+
+            tk.Label(win2, text=f"服务商返回 {len(items)} 个模型，点一个填进「模型名」",
+                     bg=BG, fg=TEXT_SUB, font=(FONT, FS_XS)).pack(
+                anchor="w", padx=14, pady=(12, 6))
+            filt_var = tk.StringVar()
+            ent = tk.Entry(win2, textvariable=filt_var, bg=CARD, fg=TEXT, relief="flat",
+                           font=(FONT, FS_MD), insertbackground=TEXT, highlightthickness=1,
+                           highlightbackground=BORDER)
+            ent.pack(fill="x", padx=14, ipady=5)
+            box = tk.Listbox(win2, bg=CARD, fg=TEXT, relief="flat", font=(FONT, FS_SM),
+                             selectbackground=SEED, selectforeground="#FFFFFF",
+                             highlightthickness=0, bd=0, activestyle="none")
+            box.pack(fill="both", expand=True, padx=14, pady=10)
+
+            def refill(*_a) -> None:
+                kw = filt_var.get().strip().lower()
+                box.delete(0, "end")
+                for it in items:
+                    if not kw or kw in it.lower():
+                        box.insert("end", it)
+                if box.size():
+                    box.selection_set(0)
+
+            def choose(*_a) -> None:
+                sel = box.curselection()
+                if not sel:
+                    return
+                chosen = box.get(sel[0])
+                model_var.set(chosen)
+                if not name_var.get().strip():
+                    name_var.set(chosen)
+                set_status(f"模型名已填入 {chosen}，点「测试连接」验一下", None)
+                win2.destroy()
+
+            filt_var.trace_add("write", refill)
+            box.bind("<Double-Button-1>", choose)
+            box.bind("<Return>", choose)
+            # 过滤框里直接回车＝选中当前高亮那条（refill 每次都把选中停在第一条），
+            # 按 ↓ 把焦点交给列表再用上下键挑。只靠双击的话，键盘用户没法选。
+            ent.bind("<Return>", choose)
+            ent.bind("<Down>", lambda _e: (box.focus_set(),
+                                           box.selection_clear(0, "end"),
+                                           box.selection_set(0) if box.size() else None))
+            refill()
+            ent.focus_set()
+            tk.Button(win2, text="用这个", bg=SEED, fg="#FFFFFF", bd=0, relief="flat",
+                      font=(FONT, FS_SM, "bold"), padx=18, pady=5, cursor="hand2",
+                      command=choose).pack(pady=(0, 12))
+
+        def do_fetch_models() -> None:
+            url = url_var.get().strip()
+            key = key_var.get().strip()
+            if not url:
+                set_status("先填接入地址", False)
+                return
+            if not key:
+                set_status("先填 API Key，才能问服务商要模型列表", False)
+                return
+            btn_models.configure(state="disabled", text="拉取中…")
+            set_status("正在问服务商要模型列表…", None)
+
+            def work() -> None:
+                try:
+                    data = (http_json("/llm/models", method="POST",
+                                      payload={"base_url": url, "api_key": key},
+                                      timeout=40) or {}).get("data") or {}
+                    items = list(data.get("items") or [])
+
+                    def done() -> None:
+                        btn_models.configure(state="normal", text="拉取模型列表")
+                        if items:
+                            pick_model(items)
+                        else:
+                            set_status(f"没拿到模型列表：{data.get('detail') or '未知原因'}"
+                                       f"｜请求：{data.get('endpoint')}", False)
+                    later(done)
+                except Exception as e:  # noqa: BLE001
+                    later(lambda: (btn_models.configure(state="normal", text="拉取模型列表"),
+                                   set_status(f"拉取失败：{_http_detail(e)}", False)))
+            threading.Thread(target=work, daemon=True).start()
+
+        btn_models.configure(command=do_fetch_models)
         btn_test.configure(command=do_test)
         btn_save.configure(command=do_save)
 

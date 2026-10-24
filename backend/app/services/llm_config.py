@@ -101,6 +101,8 @@ def config_from_profile(row) -> LLMConfig:
 # 地址与 key 的规整
 # --------------------------------------------------------------------------- #
 _VERSION_TAIL = re.compile(r"/v\d+$", re.IGNORECASE)
+# 别的协议的「完整地址」结尾。用户经常整条粘过来，而不是只粘前缀。
+_PROTOCOL_TAIL = re.compile(r"/(messages|completions|responses|embeddings)$", re.IGNORECASE)
 
 
 def normalize_endpoint(base_url: str) -> str:
@@ -112,10 +114,20 @@ def normalize_endpoint(base_url: str) -> str:
         https://open.bigmodel.cn/api/paas/v4        → .../api/paas/v4/chat/completions
         https://x.com/v1/chat/completions           → 原样
         api.moonshot.cn                             → https://api.moonshot.cn/v1/chat/completions
+        http://aigw.dlut.edu.cn/v1/messages         → .../v1/chat/completions（见下）
 
-    规则只有三条，宁可少猜：以 /chat/completions 结尾就原样；以版本号结尾就补
-    /chat/completions；其余补 /v1/chat/completions。补错了怎么办 ——
-    测试连接按钮会把**最终实际请求的地址**显示出来，一眼能看出错在哪。
+    规则只有四条，宁可少猜：以 /chat/completions 结尾就原样；以**别的协议的完整地址**
+    结尾（`/messages` 是 Anthropic、`/completions` 是 OpenAI 旧版、`/responses` 是
+    新版 Responses）先摘掉协议尾再拼；以版本号结尾就补 /chat/completions；
+    其余补 /v1/chat/completions。
+
+    最后那条「摘协议尾」是实测加上的：学校 AI 网关文档给的就是
+    `http://aigw.dlut.edu.cn/v1/messages`（Anthropic 写法），而它同时提供
+    OpenAI 兼容接口。不摘就拼成 `/v1/messages/chat/completions` —— 404，
+    但报错只说「Invalid URL」，看着像 key 不对。线上只跑 OpenAI chat 协议，
+    所以任何别的协议尾都必须转过来。
+
+    补错了怎么办 —— 测试连接按钮会把**最终实际请求的地址**显示出来，一眼能看出错在哪。
     """
     url = (base_url or "").strip()
     if not url:
@@ -126,6 +138,10 @@ def normalize_endpoint(base_url: str) -> str:
     low = url.lower()
     if low.endswith("/chat/completions"):
         return url
+
+    stripped = _PROTOCOL_TAIL.sub("", url)
+    if stripped != url:
+        return stripped + "/chat/completions"
 
     path = urlsplit(url).path.rstrip("/")
     if not path:

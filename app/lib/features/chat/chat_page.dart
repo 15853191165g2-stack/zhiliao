@@ -583,6 +583,7 @@ class _ProfileEditorState extends State<_ProfileEditor> {
   bool _thinking = false;
   bool _jsonMode = true;
   bool _busy = false;
+  bool _loadingModels = false;
   LLMTestResult? _result;
 
   @override
@@ -592,6 +593,73 @@ class _ProfileEditorState extends State<_ProfileEditor> {
     _url.dispose();
     _key.dispose();
     super.dispose();
+  }
+
+  /// 问服务商有哪些模型，挑一个填进「模型名」。
+  ///
+  /// 学校网关一次列 25 个模型（`GLM-4.6-W8A8` 这种带量化后缀的 id），
+  /// 手打就是猜；猜错了只会得到 404 model not found，分不清是名字错还是地址错。
+  Future<void> _fetchModels() async {
+    if (_url.text.trim().isEmpty || _key.text.trim().isEmpty) {
+      setState(() => _result = LLMTestResult(detail: '拉取模型列表要先填接入地址和 API Key'));
+      return;
+    }
+    setState(() {
+      _loadingModels = true;
+      _result = null;
+    });
+    try {
+      final res = await widget.repo.llmModels(
+        baseUrl: _url.text.trim(),
+        apiKey: _key.text.trim(),
+      );
+      if (!mounted) return;
+      if (res.items.isEmpty) {
+        setState(() => _result = LLMTestResult(
+              detail: res.detail.isEmpty ? '没拿到模型列表' : res.detail,
+              endpoint: res.endpoint,
+            ));
+      } else {
+        await _showModels(res.items);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _result = LLMTestResult(detail: '拉取失败：$e'));
+      }
+    } finally {
+      if (mounted) setState(() => _loadingModels = false);
+    }
+  }
+
+  Future<void> _showModels(List<String> items) async {
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('选择模型（共 ${items.length} 个）'),
+        content: SizedBox(
+          width: 320,
+          height: 360,
+          child: ListView.builder(
+            shrinkWrap: true,
+            itemCount: items.length,
+            itemBuilder: (_, i) => ListTile(
+              dense: true,
+              title: Text(items[i], style: const TextStyle(fontSize: 13)),
+              onTap: () => Navigator.of(ctx).pop(items[i]),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('取消')),
+        ],
+      ),
+    );
+    if (picked != null && mounted) {
+      setState(() {
+        _model.text = picked;
+        if (_name.text.trim().isEmpty) _name.text = picked;
+      });
+    }
   }
 
   Future<void> _test() async {
@@ -674,9 +742,20 @@ class _ProfileEditorState extends State<_ProfileEditor> {
                 helperMaxLines: 2,
               ),
             ),
-            TextField(
-              controller: _model,
-              decoration: const InputDecoration(labelText: '模型名', hintText: 'deepseek-chat'),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _model,
+                    decoration: const InputDecoration(labelText: '模型名', hintText: 'deepseek-chat'),
+                  ),
+                ),
+                const SizedBox(width: 4),
+                TextButton(
+                  onPressed: _busy || _loadingModels ? null : _fetchModels,
+                  child: Text(_loadingModels ? '拉取中' : '拉取列表'),
+                ),
+              ],
             ),
             TextField(
               controller: _key,

@@ -2082,7 +2082,7 @@ Git Bash 里 `HOME=/c/Users/詺`，ssh 会去建 `/c/Users/詺/.ssh` 并报
 
 ---
 
-## #62 接自定义大模型：三个坑都是「界面上看不出来」的
+## 62. 接自定义大模型：三个坑都是「界面上看不出来」的
 
 **坑 1：本机地址被系统代理拦成 502。**
 Windows 上常配着系统代理（学校网尤其常见）。`httpx` 默认 `trust_env=True`，
@@ -2118,3 +2118,52 @@ unsupported / unknown / extra 时才动手（4 个单测锁住这个边界）。
 **验收**：`tests/test_llm_profiles.py`（33 项）+ `scripts/probe_llm_model.py`
 （真窗口走一遍：按钮 → 弹窗 → 填错地址测连 → 保存启用 → 删除回落）。
 测连失败时**必须回显最终请求地址**，否则用户没法自查是哪一项填错了。
+
+---
+
+## 63. 接学校 AI 网关：三处「看着通了其实没通」
+
+用户给了真实凭据（学校统一 AI 网关），一接就撞出三个问题。共同点是
+**界面上都不报错**，只看指标全是绿的。
+
+**坑 1：文档给的地址是 Anthropic 写法，我拼成了 `/v1/messages/chat/completions`。**
+网关文档写 `http://xxx/v1/messages`，而它同时提供 OpenAI 兼容接口。
+`normalize_endpoint` 的老规则是「不是 `/chat/completions` 结尾就往后拼」，
+于是拼出一个 `/v1/messages/chat/completions` —— 404，但报错只说
+`Invalid URL (POST /v1/messages/chat/completions)`，看着像 key 不对。
+修法：认出 `/messages`、`/completions`、`/responses` 这些**别的协议的完整地址**，
+先摘掉协议尾，再按版本号拼。加了 5 个参数化用例 + 一条幂等性用例
+（规整两次结果必须一样，否则用户把界面上显示的地址再存一遍就坏了）。
+**顺序很关键**：先判 `/chat/completions` 再判 `/completions`，否则正确的地址会被摘掉半截。
+
+**坑 2：`/api/health` 报的是 .env 的模型，不是正在用的那个。**
+切到自定义模型后，health 仍然说 `enabled:false, model:glm-4.7-flash`
+（因为这个隔离实例没配 `AI_API_KEY`），而实际已经在跑网关的 GLM-4.6。
+用户看到这条只会得出一个结论：「切换没生效」。改 `get_active(settings)` 之后
+health 报 `{enabled, model, name, source, endpoint}` 五项，和真实调用一致。
+**假报告比没报告更坏** —— 排障时会把方向带反（这是本项目第 N 次栽在同一件事上）。
+
+**坑 3：验收脚本写死了 `glm-4.7-flash`，一换模型就假红。**
+`verify_all` 的「问答标注生成方」、`smoke_desktop` 的「简报/问答标注生成方」
+都把期望值硬编码成 `("local", "glm-4.7-flash")`。切到 GLM-4.6-W8A8 后
+三条全红，但功能是好的。改法：先问 `/health` 拿生效模型，再比。
+这和 #60 的「假红与假绿孪生」是同一个根：**断言里不应该出现实现细节的常量**。
+
+**顺带加的能力**：`POST /api/llm/models` + 桌面版「拉取模型列表」。
+这个网关一次列 25 个模型，id 是 `GLM-4.6-W8A8` `DeepSeek-V3.1-W8A8`
+这种带量化后缀的写法 —— 让人手打就是让人猜，猜错只会得到 404 model not found。
+现在点一下弹出带搜索的列表，选中即填。
+
+**选型实测**（同一批真实通知、同一份 prompt）：
+| 模型 | 单条耗时 | 三行摘要合规 |
+|---|---|---|
+| GLM-4.6-W8A8 | 6~7s | 2/2 |
+| DeepSeek-V3.1-W8A8 | 3~4s | 1/2（有一条 46 字超限） |
+| Qwen3.5-122B-A10B | 32s，且有一次 150s 超时 | 1/2 |
+所以默认选 GLM-4.6-W8A8。**Qwen3-8B / MiniMax 会在 content 里直接吐 `<think>` 标签**，
+不适合当摘要模型（除非显式关思考）。
+
+**验收**：`probe_llm_model.py` 新增第 5b 步 —— 错误地址必须回显
+`请求：.../v1/models`；给了真 key 时要求弹出选择窗口、条数 ≥5、
+点「用这个」后「模型名」**必须等于列表首项**（只断言非空是假绿，
+填进去的可能还是上一次的残留值，第一版就踩了这个）。

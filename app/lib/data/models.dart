@@ -554,3 +554,25 @@ class LLMTestResult {
         durationMs: (j['duration_ms'] as num?)?.toDouble() ?? 0,
       );
 }
+
+/// 服务商返回的模型清单。拿不到时 ok=false，原因在 [detail]。
+class LLMModels {
+  LLMModels({
+    this.ok = false,
+    this.items = const <String>[],
+    this.endpoint = '',
+    this.detail = '',
+  });
+
+  final bool ok;
+  final List<String> items;
+  final String endpoint;
+  final String detail;
+
+  factory LLMModels.fromJson(Map<String, dynamic> j) => LLMModels(
+        ok: j['ok'] == true,
+        items: (j['items'] as List?)?.map((e) => '$e').toList() ?? const <String>[],
+        endpoint: _asString(j['endpoint']) ?? '',
+        detail: _asString(j['detail']) ?? '',
+      );
+}

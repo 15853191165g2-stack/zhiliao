@@ -363,6 +363,24 @@ class LLMTestOut(BaseModel):
     duration_ms: float = 0.0
 
 
+class LLMModelsIn(BaseModel):
+    """问服务商要模型清单。同样支持「还没保存就先看有哪些模型」。
+
+    编辑已有配置时传 `profile_id` + 打码 key，后端取库里原文。
+    """
+
+    base_url: str = Field("", max_length=500)
+    api_key: str = Field("", max_length=500)
+    profile_id: int | None = None
+
+
+class LLMModelsOut(BaseModel):
+    ok: bool = False
+    items: list[str] = Field(default_factory=list)
+    endpoint: str = ""
+    detail: str = ""
+
+
 # --------------------------------------------------------------------------- #
 # 抓取
 # --------------------------------------------------------------------------- #

@@ -232,6 +232,99 @@ if btn_test is not None and not fails:
     elif "实际请求" not in status_found and "127.0.0.1" not in status_found:
         fails.append("失败时没有回显最终请求地址（用户没法自查）")
 
+# ---- 5b. 拉取模型列表 ----
+btn_models = find(dw, "Button", "拉取模型列表")
+print("5b) 「拉取模型列表」按钮：", "有" if btn_models else "✗ 无")
+if btn_models is None:
+    fails.append("模型窗口里没有「拉取模型列表」按钮")
+elif not fails:
+    # 先用连不上的地址：必须如实报「没拿到」，并且把实际请求地址回显出来
+    btn_models.invoke()
+    got = ""
+    deadline = time.time() + args.timeout
+    while time.time() < deadline:
+        pump(root, 0.4)
+        for w in find_all(walk(win, []), "Label"):
+            try:
+                t = str(w.cget("text"))
+            except Exception:  # noqa: BLE001
+                continue
+            if "没拿到模型列表" in t or "拉取失败" in t:
+                got = t
+                break
+        if got:
+            break
+    print("    错误地址 ->", (got[:110] or "✗ 没有提示"))
+    if not got:
+        fails.append("拉取模型列表失败时没有任何提示（用户不知道点上没有）")
+    elif "/models" not in got:
+        fails.append("拉取失败时没回显实际请求地址")
+
+    # 给了真 key 才跑真实网关那一段（可选，不给就只验失败分支）
+    gw_key = os.environ.get("PROBE_GW_KEY", "")
+    if gw_key and not fails:
+        gw_base = os.environ.get("PROBE_GW_BASE", "http://aigw.dlut.edu.cn/v1/messages")
+        for w, text in ((e_url, gw_base), (e_key, gw_key)):
+            w.delete(0, "end")
+            w.insert(0, text)
+        btn_models.invoke()
+        picker = None
+        deadline = time.time() + args.timeout
+        while time.time() < deadline:
+            pump(root, 0.4)
+            # ⚠️ 选择窗口的 master 是「AI 模型」窗口，不是 root ——
+            #    只扫 root.winfo_children() 永远找不到它（第一版就是这么假红的）。
+            for base in (root, win):
+                for t in walk(base, []):
+                    if t.winfo_class() != "Toplevel":
+                        continue
+                    try:
+                        if t is not win and "选择模型" in str(t.title()):
+                            picker = t
+                            break
+                    except Exception:  # noqa: BLE001
+                        continue
+                if picker:
+                    break
+            if picker:
+                break
+        print("    真实网关 ->", f"弹出选择窗口（{picker.title()}）" if picker else "✗ 没弹出")
+        if not picker:
+            fails.append("真实网关拉取成功后没有弹出模型选择窗口")
+        else:
+            boxes = find_all(walk(picker, []), "Listbox")
+            n = boxes[0].size() if boxes else 0
+            first = boxes[0].get(0) if n else ""
+            print(f"    列表条数={n} 首项={first or '-'}")
+            if n < 5:
+                fails.append(f"模型列表只有 {n} 条，不像真的")
+            elif e_model is not None:
+                # 走「用这个」按钮 —— 和用户点一下是同一条路。
+                # 只断言「非空」是假绿：填进去的可能还是上一次的残留值。
+                use_btn = find(walk(picker, []), "Button", "用这个")
+                if use_btn is None:
+                    fails.append("选择窗口里没有「用这个」按钮")
+                else:
+                    if n:
+                        boxes[0].selection_clear(0, "end")
+                        boxes[0].selection_set(0)
+                    use_btn.invoke()
+                    pump(root, 1.2)
+                    got_model = str(e_model.get()).strip()
+                    print(f"    选完「模型名」= {got_model!r}")
+                    if got_model != first:
+                        fails.append(f"选中的是 {first!r}，模型名却填成了 {got_model!r}")
+            try:
+                picker.destroy()
+            except Exception:  # noqa: BLE001
+                pass
+        # 还原成探针自己那份，后面 6/7 步还要用
+        for w, text in ((e_url, "http://127.0.0.1:9"), (e_name, "探针模型"),
+                        (e_model, "probe-model"), (e_key, "sk-probe-0000")):
+            if w is not None:
+                w.delete(0, "end")
+                w.insert(0, text)
+
 # ---- 6. 保存并启用 ----
 if btn_save is not None and not fails:
     btn_save.invoke()

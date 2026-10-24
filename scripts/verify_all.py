@@ -281,14 +281,19 @@ def main() -> None:
         log(f"        抓取正常 {ok_cnt} / {len(srcs)} 个来源")
 
         # ---------------- AI 问答 ----------------
-        log("\n[6] AI 问答（走 GLM，可能较慢）")
+        log("\n[6] AI 问答（走当前生效的模型，可能较慢）")
         try:
+            # 期望值不能写死 glm-4.7-flash：用户切到自定义模型（比如学校 AI 网关的
+            # GLM-4.6-W8A8）之后，这条会变成假红 —— 功能明明是好的。
+            # 正确做法是问 /health「现在生效的是哪个」再比。
+            eff = (get("/health").get("data") or {}).get("ai") or {}
+            expect = {"local"} | ({eff["model"]} if eff.get("model") else set())
             c = post("/chat", {"question": "最近有什么奖学金通知？",
                                "days": 180, "top_k": 8},
                      timeout=AI_TIMEOUT, retries=2)["data"]
             check("问答有回答", bool((c.get("answer") or "").strip()))
-            check("问答标注生成方", c.get("generated_by") in ("local", "glm-4.7-flash"),
-                  str(c.get("generated_by")))
+            check("问答标注生成方", c.get("generated_by") in expect,
+                  f"{c.get('generated_by')}（当前生效 {eff.get('model') or '未配置'}）")
             log(f"        generated_by = {c.get('generated_by')}, "
                 f"citations = {len(c.get('citations') or [])}")
             log(f"        回答前 200 字：{(c.get('answer') or '')[:200]}")

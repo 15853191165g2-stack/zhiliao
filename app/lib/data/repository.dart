@@ -224,6 +224,24 @@ class Repository {
     return LLMTestResult.fromJson(Map<String, dynamic>.from(data as Map));
   }
 
+  /// 问服务商有哪些模型，给「模型名」那一栏做个下拉。
+  ///
+  /// 学校网关一次列 25 个模型，id 长这样：`GLM-4.6-W8A8` / `DeepSeek-V3.1-W8A8`。
+  /// 让人手打就是让人猜，猜错了只会得到 404 model not found —— 界面上分不清
+  /// 是「名字错」还是「地址错」。拿不到列表不算失败，仍可手填模型名保存。
+  Future<LLMModels> llmModels({
+    String baseUrl = '',
+    String apiKey = '',
+    int? profileId,
+  }) async {
+    final data = await _api.post('/api/llm/models', body: {
+      'base_url': baseUrl,
+      'api_key': apiKey,
+      if (profileId != null) 'profile_id': profileId,
+    });
+    return LLMModels.fromJson(Map<String, dynamic>.from(data as Map));
+  }
+
   // ---- 推送 ----
   /// 拉取「比游标新」的通知。
   ///

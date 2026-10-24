@@ -78,11 +78,37 @@ def _create(client, name="我的模型", activate=False, **kw) -> int:
             "https://x.com/v1/chat/completions",
         ),
         ("api.moonshot.cn", "https://api.moonshot.cn/v1/chat/completions"),
+        # 整条粘别的协议的地址：学校 AI 网关的文档就写 /v1/messages（实测）
+        (
+            "http://aigw.dlut.edu.cn/v1/messages",
+            "http://aigw.dlut.edu.cn/v1/chat/completions",
+        ),
+        ("http://aigw.dlut.edu.cn/v1/messages/", "http://aigw.dlut.edu.cn/v1/chat/completions"),
+        (
+            "https://api.openai.com/v1/completions",
+            "https://api.openai.com/v1/chat/completions",
+        ),
+        (
+            "https://api.openai.com/v1/responses",
+            "https://api.openai.com/v1/chat/completions",
+        ),
+        # 已经是对的就别再动它（别拼成 /chat/completions/chat/completions）
         ("", ""),
     ],
 )
 def test_normalize_endpoint(given, expected):
     assert llm_config.normalize_endpoint(given) == expected
+
+
+def test_normalize_endpoint_is_idempotent():
+    """规整两次结果必须一样 —— 否则用户把显示出来的地址再存一遍就坏了。"""
+    for raw in [
+        "http://aigw.dlut.edu.cn/v1/messages",
+        "https://api.deepseek.com",
+        "https://api.openai.com/v1/completions",
+    ]:
+        once = llm_config.normalize_endpoint(raw)
+        assert llm_config.normalize_endpoint(once) == once
 
 
 def test_mask_key_never_leaks_middle():

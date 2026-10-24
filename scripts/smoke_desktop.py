@@ -76,6 +76,22 @@ def post(path: str, payload=None, timeout: float = 30.0, retries: int = 0):
     raise last
 
 
+def _ai_expect(get) -> set:
+    """「生成方」这一栏允许的取值 = 当前生效模型 + local。
+
+    为什么现算：内置默认是 glm-4.7-flash，但用户可以换成任何 OpenAI 兼容的服务
+    （学校 AI 网关的 GLM-4.6-W8A8 就是实测案例）。写死期望值的话，功能明明是好的，
+    脚本却报红 —— 那是把「我记错了」当成「产品坏了」。
+    """
+    try:
+        eff = (get("/health").get("data") or {}).get("ai") or {}
+    except Exception:  # noqa: BLE001
+        return {"local"}
+    out = {"local"}
+    if eff.get("model"):
+        out.add(str(eff["model"]))
+    return out
+
 # --------------------------------------------------------------------------- #
 def test_api() -> None:
     print("\n[A] 后端接口冒烟  " + API)
@@ -151,7 +167,9 @@ def test_api() -> None:
     check("简报含统计", isinstance(b.get("counts"), dict), str(b.get("counts")))
     check("简报含朗读文本", bool((b.get("speech_text") or "").strip()),
           f"{len(b.get('speech_text') or '')} 字")
-    check("简报标注生成方", b.get("generated_by") in ("local", "glm-4.7-flash"),
+    # 期望值取「当前生效的模型」，不能写死 glm-4.7-flash ——
+    # 用户切到自定义模型后这条会变成假红（实测 GLM-4.6-W8A8 报红）。
+    check("简报标注生成方", b.get("generated_by") in _ai_expect(get),
           str(b.get("generated_by")))
 
     # ---- 来源 ----
@@ -165,7 +183,7 @@ def test_api() -> None:
         c = post("/chat", {"question": "最近有什么通知？", "days": 90, "top_k": 8},
                  timeout=240.0, retries=2)["data"]
         check("POST /chat 可用", bool((c.get("answer") or "").strip()))
-        check("问答标注生成方", c.get("generated_by") in ("local", "glm-4.7-flash"),
+        check("问答标注生成方", c.get("generated_by") in _ai_expect(get),
               str(c.get("generated_by")))
         check("问答有引用条数输出", isinstance(c.get("citations"), list),
               f"{len(c.get('citations') or [])} 条引用")

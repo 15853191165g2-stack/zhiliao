@@ -328,6 +328,77 @@ def extract_json(text: str) -> dict[str, Any] | None:
     return None
 
 
+async def list_remote_models(
+    endpoint: str, api_key: str, timeout: float = 15.0
+) -> dict[str, Any]:
+    """问服务商「你有哪些模型」，给界面上的模型名做个下拉。
+
+    为什么值得单独写：学校网关列出来 25 个模型（`GLM-4.6-W8A8`
+    `DeepSeek-V3.1-W8A8` 这种带量化后缀的 id），让人手打是让人猜。
+    猜错了只会得到 404 model not found，而界面上看不出是「名字错」还是「地址错」。
+
+    这里只做一件事：把 `/chat/completions` 换成 `/models`，带同一个 Key 去 GET。
+    失败**不抛异常**，把原因写在 `detail` 里返回 —— 下拉拿不到不该阻断「保存」，
+    用户完全可以自己填模型名。
+    """
+    cfg_url = (endpoint or "").strip()
+    if not cfg_url:
+        return {"ok": False, "items": [], "endpoint": "", "detail": "没填接入地址"}
+    root = cfg_url.rstrip("/")
+    for tail in ("/chat/completions", "/completions", "/messages", "/responses"):
+        if root.lower().endswith(tail):
+            root = root[: -len(tail)]
+            break
+    models_url = root.rstrip("/") + "/models"
+
+    headers = {"Authorization": f"Bearer {api_key}"}
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout), trust_env=not is_local_host(models_url)
+        ) as client:
+            resp = await client.get(models_url, headers=headers)
+            if resp.status_code in (401, 403):
+                # 少数网关只认 Anthropic 那个头
+                resp = await client.get(
+                    models_url, headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+                )
+    except (httpx.HTTPError, ValueError) as e:
+        return {"ok": False, "items": [], "endpoint": models_url, "detail": f"{type(e).__name__}: {e}"}
+
+    if resp.status_code >= 400:
+        return {
+            "ok": False,
+            "items": [],
+            "endpoint": models_url,
+            "detail": f"HTTP {resp.status_code}: {resp.text[:200]}",
+        }
+    try:
+        data = resp.json()
+    except ValueError:
+        return {"ok": False, "items": [], "endpoint": models_url, "detail": "返回的不是 JSON"}
+
+    raw = data.get("data") if isinstance(data, dict) else None
+    if raw is None and isinstance(data, dict):
+        raw = data.get("models")  # Anthropic 风格
+    items: list[str] = []
+    for row in raw or []:
+        if isinstance(row, dict):
+            mid = row.get("id") or row.get("name") or row.get("model")
+            if isinstance(mid, str) and mid.strip():
+                items.append(mid.strip())
+        elif isinstance(row, str) and row.strip():
+            items.append(row.strip())
+    items = sorted(set(items), key=lambda x: x.lower())
+    if not items:
+        return {
+            "ok": False,
+            "items": [],
+            "endpoint": models_url,
+            "detail": "拿到了列表但里面没有模型 id（这个网关可能关掉了 /models）",
+        }
+    return {"ok": True, "items": items, "endpoint": models_url, "detail": ""}
+
+
 async def check_ai(
     settings: Settings | None = None, llm: LLMConfig | None = None
 ) -> dict[str, Any]:

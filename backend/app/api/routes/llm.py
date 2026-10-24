@@ -29,6 +29,8 @@ from app.schemas import (
     ApiResponse,
     LLMEnvOut,
     LLMListOut,
+    LLMModelsIn,
+    LLMModelsOut,
     LLMProfileIn,
     LLMProfileOut,
     LLMProfileUpdate,
@@ -36,7 +38,7 @@ from app.schemas import (
     LLMTestOut,
 )
 from app.services import llm_config
-from app.services.ai_client import check_ai
+from app.services.ai_client import check_ai, list_remote_models
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/llm", tags=["llm"])
@@ -292,5 +294,43 @@ async def test_connection(
             model=cfg.model,
             reply=str(result.get("reply") or ""),
             duration_ms=round(elapsed, 1),
+        )
+    )
+
+
+@router.post("/models", response_model=ApiResponse[LLMModelsOut])
+async def list_models(
+    payload: LLMModelsIn,
+    session: AsyncSession = Depends(get_session),
+):
+    """问服务商有哪些模型，给「模型名」那一栏做个下拉。
+
+    学校网关一次列 25 个模型，id 长这样：`GLM-4.6-W8A8` / `DeepSeek-V3.1-W8A8`。
+    让人手打就是让人猜，猜错了只会得到 404 model not found —— 界面上分不清
+    是「名字错」还是「地址错」。
+
+    拿不到列表**不算失败**：返回 ok=False + 原因，用户仍然可以自己填模型名保存。
+    """
+    base = payload.base_url.strip()
+    key = payload.api_key.strip()
+
+    if payload.profile_id:
+        row = await session.get(LLMProfile, payload.profile_id)
+        if row is not None:
+            base = base or (row.base_url or "")
+            if not key or llm_config.is_masked(key):
+                key = row.api_key or ""
+
+    endpoint = llm_config.normalize_endpoint(base)
+    if not key:
+        return ApiResponse.ok(LLMModelsOut(ok=False, endpoint=endpoint, detail="没有可用的 API Key"))
+
+    res = await list_remote_models(endpoint, key)
+    return ApiResponse.ok(
+        LLMModelsOut(
+            ok=bool(res.get("ok")),
+            items=list(res.get("items") or []),
+            endpoint=str(res.get("endpoint") or endpoint),
+            detail=str(res.get("detail") or ""),
         )
     )

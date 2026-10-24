@@ -84,6 +84,13 @@ async def health(
     except Exception as e:  # noqa: BLE001
         push_info = {"error": str(e)[:200]}
 
+    # 「现在到底用哪个模型」必须报**生效中的**那份，不是 .env 那份。
+    # 之前这里读 settings.ai_model：用户切到自定义模型后，health 还一直说
+    # glm-4.7-flash，看着像「切换没生效」——而实际已经在跑新模型了。
+    # 这类假报告比没报告更坏，排障时会把方向带反。
+    from app.services.llm_config import get_active
+
+    ai_cfg = get_active(settings)
     data = {
         "app": settings.app_name,
         "env": settings.env,
@@ -92,7 +99,13 @@ async def health(
             "dialect": settings.database_url.split("+")[0].split(":")[0],
             "error": db_error,
         },
-        "ai": {"enabled": settings.ai_enabled, "model": settings.ai_model},
+        "ai": {
+            "enabled": ai_cfg.enabled,
+            "model": ai_cfg.model,
+            "name": ai_cfg.name,
+            "source": ai_cfg.source,
+            "endpoint": ai_cfg.endpoint,
+        },
         "counts": {
             "sources": source_count,
             "notifications": notif_count,
@@ -109,6 +122,6 @@ async def health(
     if deep:
         from app.services.ai_client import check_ai
 
-        data["ai"]["check"] = await check_ai(settings)
+        data["ai"]["check"] = await check_ai(settings, ai_cfg)
 
     return ApiResponse.ok(data)

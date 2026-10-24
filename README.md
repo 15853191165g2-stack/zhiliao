@@ -162,9 +162,14 @@ python scripts/check_dlut_sources.py --source myschool_jwc   # 先看单来源�
 | 字段 | 例子 | 说明 |
 |---|---|---|
 | 配置名 | 我的 DeepSeek | 你自己看得懂就行 |
-| 接入地址 | `https://api.deepseek.com` | **只填域名也可以**，会自动补 `/v1/chat/completions` |
-| 模型名 | `deepseek-chat` | 服务商文档里那个 model id |
+| 接入地址 | `https://api.deepseek.com` | **只填域名也可以**，会自动补 `/v1/chat/completions`；写成 `/v1/messages`（Anthropic 写法）也会自动纠过来 |
+| 模型名 | `deepseek-chat` | 服务端文档里那个 model id。填不准就点「拉取模型列表」从下拉里挑 |
 | API Key | `sk-...` | 只存本机 |
+
+**模型名不用自己猜。** 点「拉取模型列表」，知了会拿你填的地址和 Key 去问服务商
+`/v1/models`，把拿到的模型摊成一个带搜索的列表，点一下就填进「模型名」。
+学校/公司统一网关常常一次列二三十个模型，id 还带量化后缀（`xxx-W8A8`），
+手打基本靠猜；猜错了只会得到 `404 model not found`，界面上看不出是名字错还是地址错。
 
 **先点「测试连接」再保存。** 地址填错时服务端不会说「你地址不对」，只会还一个
 401 / 404 / 超时，分不清是哪一项错。所以测试结果里会直接回显**最终实际请求的地址**，
